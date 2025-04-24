@@ -1,0 +1,161 @@
+﻿음식/체질,Wolf,Eagle,Bear,Elephant,Dolphin,Rabbit,Turtle,Frog
+쇠고기,OO,OO,OO,△,XX,XX,△,OO
+돼지고기,△,OO,OO,OO,X,XX,XX,XX
+닭고기,O,△,XX,XX,XX,XX,OO,OO
+오리고기,O,△,XX,XX,XX,XX,OO,OO
+개고기,O,△,XX,XX,XX,XX,OO,OO
+염소고기(흑염소중탕),O,△,XX,XX,XX,XX,OO,OO
+"우유(냉/온), 유제품",O(온),O(온),O(냉),△(냉),XX,XX,△(온),△(온)
+버터,O,O,O,△,XX,XX,△,O
+치즈,O,O,O,O,X,X,△,△
+계란 노른자,O,O,O,△,△,△,O,O
+계란 흰자,△,△,O,O,O,O,△,△
+대부분의 바다생선,XX,XX,O,O,OO,OO,△,X
+"민물생선(장어, 미꾸라지)",O,O,O,△,XX,XX,△,O
+조개류(패류),XX,XX,O,O,OO,OO,X,X
+굴,XX,XX,O,O,O,△,XX,XX
+"새우,게(갑각류)",XX,XX,O,O,O,O,X,XX
+흰살생선,XX,XX,O,O,OO,OO,O,X
+붉은살 생선,XX,XX,△,△,O,O,X,X
+복어,XX,XX,OO,OO,O,O,XX,XX
+콩,O,O,O,△,XX,XX,O,O
+메주콩,O,O,O,△,XX,XX,O,O
+완두콩,O,O,O,O,△,△,O,O
+강낭콩,O,O,O,O,△,△,O,O
+팥,XX,O,O,O,△,△,XX,XX
+청국장,O,O,O,△,XX,XX,△,O
+"견과류 (땅콩,아몬드,캐슈넛,피스타치오 등)",O,O,O,O,XX,XX,O,O
+은행,O,O,X,XX,XX,XX,O,O
+"호두(Walnut, Pecan)",O,O,X,XX,XX,XX,O,O
+밤,O,O,X,XX,XX,XX,O,O
+"잣, 해바라기씨",O,O,X,XX,XX,XX,O,O
+도토리,O,O,X,X,XX,XX,O,O
+된장(발효된장),O,O,O,O,O,O,O,OO
+두유,O,O,O,△,XX,XX,△,△
+두부,O,O,O,O,O,O,O,O
+쌀(백미),O,O,O,O,OO,OO,O,O
+현미,O,△,XX,XX,X,X,O,O
+찹쌀,O,X,XX,XX,X,△,O,O
+보리,X,△,O,O,△,△,XX,XX
+메밀,X,X,O,O,O,O,△,X
+수수,O,O,△,△,X,X,O,△
+메조,△,△,O,O,O,O,X,X
+녹두,△,△,O,O,O,O,△,△
+옥수수,O,O,△,△,△,△,O,O
+밀가루,OO,OO,O,△,XX,XX,△,O
+율무,O,O,△,△,XX,XX,△,△
+"숭늉, 누룽지",O,△,X,X,△,O,O,O
+귀리,O,O,O,△,X,X,△,△
+호밀,X,△,O,O,△,△,△,X
+들기름,O,O,△,X,X,X,△,△
+참기름,O,△,X,X,X,X,O,O
+콩기름,O,O,O,△,X,X,△,△
+옥수수유,O,O,△,△,X,△,O,O
+카놀라유,O,O,O,O,△,△,O,O
+올리브유,△,△,O,O,△,△,△,△
+포도씨유,X,X,O,O,△,△,△,△
+코코넛유,△,△,O,O,△,△,△,△
+아보카도유,O,O,O,O,△,△,O,O
+"뿌리채소 (무,당근,연근 등)",OO,OO,O,△,XX,XX,△,O
+감자,OO,OO,△,△,△,△,OO,OO
+고구마,OO,△,X,X,X,X,O,O
+마,O,O,X,X,XX,XX,△,△
+비트,O,O,△,X,XX,XX,△,O
+생강,O,X,XX,XX,XX,△,O,O
+도라지,O,△,XX,XX,XX,X,O,O
+토란,O,△,XX,XX,XX,X,O,O
+더덕,O,△,XX,XX,XX,X,O,O
+우엉,O,△,X,X,XX,X,O,O
+"푸른 잎 채소 (배추, 양배추, 상추 등)",X,X,O,O,OO,OO,O,△
+고사리,X,X,O,O,O,O,△,X
+오이,X,X,O,O,O,O,△,X
+무청,X,X,O,O,△,△,△,X
+시금치,△,△,△,△,△,O,O,△
+취나물,△,△,O,O,O,O,O,△
+미나리,△,△,O,O,O,O,△,△
+깻잎,△,△,△,△,△,△,△,△
+부추,△,△,△,△,O,O,O,O
+파프리카,△,△,△,△,△,△,△,△
+"단호박,늙은호박",O,O,O,△,X,X,△,O
+애호박,O,O,O,O,O,O,△,O
+가지,O,O,△,△,△,O,O,O
+토마토,O,△,X,X,△,△,O,O
+아보카도,O,O,O,O,△,△,O,O
+두릅,△,△,O,O,△,△,X,X
+"일반 버섯 (송이, 표고, 느타리 등)",O,O,O,△,X,X,△,O
+셀러리,X,X,△,△,△,△,△,X
+"고추 (고춧가루, 청고추)",△,△,XX,XX,X,△,O,O
+"파 ,양파, 생강, 계피, 겨자, 후추, 카레 등 열성향신료",O,△,XX,XX,X,△,O,O
+마늘,OO,OO,O,X,XX,XX,O,O
+설탕,O,O,O,△,X,X,△,O
+미역,△,△,XX,XX,△,△,O,O
+다시마,△,△,XX,XX,△,△,O,O
+김,△,△,△,△,O,O,O,△
+사과,O,△,XX,XX,XX,X,OO,OO
+배,OO,OO,O,△,X,X,△,O
+"귤,오렌지,자몽,레몬, 라임",O,△,XX,XX,X,△,O,O
+망고,O,△,XX,XX,X,△,O,O
+토마토,O,△,X,X,△,△,O,O
+"수박, 메론",O,O,O,O,△,△,△,△
+포도(캠벨),X,X,O,O,O,O,△,△
+청포도,XX,XX,O,O,O,O,O,XX
+참외,△,△,O,O,O,O,X,X
+딸기,△,△,O,O,O,O,X,X
+바나나,△,△,O,O,O,O,X,X
+파인애플,△,△,O,O,O,O,X,X
+키위,△,△,△,△,△,△,△,△
+석류,△,△,O,O,X,X,△,△
+파파야,△,△,△,△,△,△,△,△
+블루베리,△,△,O,O,△,△,△,△
+오디열매,△,△,O,O,X,X,△,△
+감,△,△,O,O,△,△,X,X
+복분자,X,X,O,O,O,O,X,X
+"복숭아, 자두",△,△,△,△,O,O,O,△
+"체리 ,앵두, 살구",△,△,△,△,O,O,△,△
+크랜베리,X,X,O,O,△,△,XX,XX
+코코넛,△,△,O,O,△,△,△,△
+무화과,X,△,O,O,O,O,△,X
+리치,O,O,O,O,X,X,△,△
+"산삼, 인삼(홍삼)",O,X,XX,XX,XX,X,O,O
+녹용,O,O,X,XX,XX,XX,△,△
+꿀,O,X,XX,XX,XX,X,O,O
+대추,O,X,XX,XX,XX,X,O,O
+구기자,X,X,O,△,X,X,X,X
+부자,△,X,XX,XX,X,X,△,△
+영지버섯,X,X,O,△,XX,XX,X,X
+상황버섯,△,△,X,X,X,X,X,X
+모과,X,X,△,△,O,O,△,X
+유자,O,X,XX,XX,X,X,△,△
+매실,△,△,X,X,X,X,O,O
+오미자,△,O,X,X,XX,XX,△,△
+산수유,X,X,O,△,X,X,XX,XX
+칡,O,O,X,X,XX,XX,X,O
+알로에,XX,△,O,O,△,X,XX,XX
+스쿠알렌,O,O,△,△,X,X,△,△
+포도당주사,XX,XX,O,O,O,O,△,X
+포도당가루,XX,XX,O,O,O,O,△,X
+"카페인 음료 (커피, 차, 에너지음료)",O,O,O,△,X,X,X,X
+녹차 및 대부분의 허브차,△,△,△,△,X,X,△,△
+국화차,△,O,△,X,XX,XX,X,X
+생강차,O,X,XX,XX,XX,△,O,O
+대추차,O,X,XX,XX,XX,X,O,O
+율무차,O,O,△,△,XX,XX,△,△
+모과차,X,X,△,△,O,O,△,X
+쌍화차,△,△,XX,XX,XX,XX,O,O
+인삼차(홍삼차),O,X,XX,XX,XX,X,O,O
+찬물(음용),△,△,O,O,O,O,△,X
+더운물(음용),O,O,△,△,△,△,O,O
+알칼리성 음료수,O,O,O,O,X,X,X,X
+얼음,△,△,O,O,O,O,△,X
+가공 음료수,X,X,X,X,X,X,X,X
+술,XX,XX,XX,XX,XX,XX,XX,XX
+담배,XX,XX,XX,XX,XX,XX,XX,XX
+코코아(초콜릿),△,△,△,△,△,△,△,△
+맥주,X,X,△,△,△,△,X,X
+위스키,△,△,△,X,X,X,△,△
+테킬라,X,△,△,X,X,X,X,XX
+보드카,△,△,△,X,X,X,△,△
+와인,XX,XX,△,△,△,△,△,XX
+쌀 막걸리,X,X,△,X,△,△,X,X
+"정종, 청주, 증류소주",△,△,△,△,△,△,△,△
+소주(화학주),X,X,X,X,X,X,X,X
