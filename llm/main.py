@@ -55,6 +55,8 @@ class Recipe(BaseModel):
     image: str = Field(..., description="이미지 URL")
     rating: float = Field(..., description="평점")
     suitableFor: str = Field(..., description="적합 대상 설명")
+    reason: str = Field(..., description="레시피 생성 이유 설명")
+    suitableBodyTypes: list[str] = Field(..., description="이 음식에 적합한 체질 리스트 (목양체질, 목음체질, 토양체질, 토음체질, 금양체질, 금음체질, 수양체질, 수음체질)")
     tags: list[str] = Field(..., description="태그 목록")
     steps: list[str] = Field(..., description="조리 단계 리스트")
     servings: str = Field(..., description="인분 정보")
