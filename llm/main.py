@@ -9,6 +9,8 @@ from pymongo import MongoClient
 from langchain_openai import ChatOpenAI
 from langchain.output_parsers import PydanticOutputParser
 import config
+import requests
+import httpx  # 비동기 HTTP 호출용
 
 # 환경 변수 설정
 os.environ['OPENAI_API_KEY'] = config.settings.OPENAI_API_KEY
@@ -18,6 +20,9 @@ openai.api_key = config.settings.OPENAI_API_KEY
 mongo_client = MongoClient(config.settings.MONGODB_URI)
 db = mongo_client.get_database(config.settings.MONGODB_DB_NAME)
 collection = db.chat_sessions
+
+# config에서 관리하는 백엔드 URL 사용
+BACKEND_URL = config.settings.BACKEND_URL
 
 app = FastAPI(
     title="AI-Data LLM Service",
@@ -60,7 +65,7 @@ class Recipe(BaseModel):
 parser = PydanticOutputParser(pydantic_object=Recipe)
 format_instructions = parser.get_format_instructions()
 
-@app.post(config.settings.API_PREFIX, response_model=ChatResponse)
+@app.post("/api/v1/users/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     try:
         # 대화형 챗봇 역할, 요구사항 수집 흐름 및 JSON 출력 방식 정의
@@ -110,6 +115,18 @@ async def chat(request: ChatRequest):
             "created_at": datetime.utcnow()
         }
         collection.insert_one(doc)
+        # LLM에서 생성된 레시피를 Backend의 recipe API로 저장
+        for recipe in recipes_list:
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.post(
+                        f"{BACKEND_URL}/api/v1/recipes",
+                        json=recipe,
+                    )
+                    resp.raise_for_status()
+                print("레시피 백엔드 저장 성공:", recipe.get("id"))
+            except Exception as e:
+                print("레시피 백엔드 저장 실패:", e)
         # 레시피 여부 플래그 설정
         is_recipe_flag = len(recipes_list) > 0
         return ChatResponse(message=response_message, is_recipe=is_recipe_flag)

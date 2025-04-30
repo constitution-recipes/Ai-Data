@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     API_PREFIX: str     # REST API 엔드포인트 경로
     HOST: str                      # FastAPI 호스트
     PORT: int                          # FastAPI 포트
+    BACKEND_URL: str               # 백엔드 서비스 API URL
 
     class Config:
         env_file = ".env"
@@ -23,4 +24,5 @@ MODEL_NAME = settings.MODEL_NAME
 API_PREFIX = settings.API_PREFIX
 HOST = settings.HOST
 PORT = settings.PORT
+BACKEND_URL = settings.BACKEND_URL
 
