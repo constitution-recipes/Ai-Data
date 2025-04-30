@@ -47,11 +47,9 @@ llm = ChatOpenAI(
 
 # PydanticOutputParser 설정: 하나의 Recipe만 반환
 class Recipe(BaseModel):
-    id: str = Field(..., description="레시피 고유 ID")
     title: str = Field(..., description="레시피 제목")
     description: str = Field(..., description="레시피 설명")
     difficulty: str = Field(..., description="난이도")
-    prepTime: str = Field(..., description="준비 시간")
     cookTime: str = Field(..., description="조리 시간")
     ingredients: list[str] = Field(..., description="재료 목록")
     image: str = Field(..., description="이미지 URL")
@@ -96,17 +94,37 @@ async def chat(request: ChatRequest):
         content = resp.content
         print("메시지 내용: ", content)
 
+        # 레시피 감지 플래그
+        recipe_detected = False
         # PydanticOutputParser로 content 파싱
         try:
+            # PydanticOutputParser로 단일 Recipe 파싱
             recipe_obj = parser.parse(content)
             recipes_list = [recipe_obj.dict()]
-            # 하나의 Recipe 객체를 JSON 배열로 반환
             response_message = json.dumps(recipes_list, ensure_ascii=False)
+            recipe_detected = True
         except Exception as e:
-            # 파싱 실패 시 원본 content 반환
             print('파싱 에러:', e)
-            recipes_list = []
-            response_message = content
+            # fallback: JSON array 혹은 객체 형태인지 검사
+            try:
+                parsed = json.loads(content)
+                # 객체 하나
+                if isinstance(parsed, dict) and 'title' in parsed and 'ingredients' in parsed:
+                    recipes_list = [parsed]
+                    response_message = json.dumps(recipes_list, ensure_ascii=False)
+                    recipe_detected = True
+                # 배열 형태
+                elif isinstance(parsed, list) and parsed and isinstance(parsed[0], dict) \
+                     and 'title' in parsed[0] and 'ingredients' in parsed[0]:
+                    recipes_list = parsed
+                    response_message = content
+                    recipe_detected = True
+                else:
+                    recipes_list = []
+                    response_message = content
+            except Exception:
+                recipes_list = []
+                response_message = content
         # MongoDB에 대화 및 레시피 저장
         doc = {
             "session_id": request.session_id,
@@ -115,21 +133,8 @@ async def chat(request: ChatRequest):
             "created_at": datetime.utcnow()
         }
         collection.insert_one(doc)
-        # LLM에서 생성된 레시피를 Backend의 recipe API로 저장
-        for recipe in recipes_list:
-            try:
-                async with httpx.AsyncClient() as client:
-                    resp = await client.post(
-                        f"{BACKEND_URL}/api/v1/recipes",
-                        json=recipe,
-                    )
-                    resp.raise_for_status()
-                print("레시피 백엔드 저장 성공:", recipe.get("id"))
-            except Exception as e:
-                print("레시피 백엔드 저장 실패:", e)
-        # 레시피 여부 플래그 설정
-        is_recipe_flag = len(recipes_list) > 0
-        return ChatResponse(message=response_message, is_recipe=is_recipe_flag)
+        # 레시피 여부 플래그 설정 (JSON 파싱 감지 기준)
+        return ChatResponse(message=response_message, is_recipe=recipe_detected)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
