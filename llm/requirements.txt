@@ -7,3 +7,10 @@ langchain-openai
 pymongo
 pydantic-settings 
 httpx
+bcrypt
+langgraph
+chromadb
+pydantic
+langsmith
+
+langchain-chroma>=0.1.2
