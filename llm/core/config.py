@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     HOST: str                      # FastAPI 호스트
     PORT: int                      # FastAPI 포트
     BACKEND_URL: str               # 백엔드 서비스 API URL
-    LANGSMITH_TRACING: bool = False # Langsmith 트레이싱 사용 여부
+    LANGSMITH_TRACING: bool = True # Langsmith 트레이싱 사용 여부
     LANGSMITH_API_KEY: Optional[str] = None # Langsmith API 키
     LANGSMITH_ENDPOINT: Optional[str] = None # Langsmith 엔드포인트
     LANGSMITH_PROJECT_NAME: Optional[str] = None # Langsmith 프로젝트 이름
