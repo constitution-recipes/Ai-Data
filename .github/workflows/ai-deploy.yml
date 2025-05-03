@@ -20,8 +20,8 @@ jobs:
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v2
         with:
-          context: ./llm
-          file: ./Dockerfile
+          context: .
+          file: ./llm/Dockerfile
           push: true
           tags: |
             ${{ secrets.DOCKER_USER }}/${{ secrets.DOCKER_REPOSITORY }}:llm-${{ github.ref_name }}
