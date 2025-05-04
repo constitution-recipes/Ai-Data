@@ -2,12 +2,13 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional
 from langchain.output_parsers import PydanticOutputParser
-from langchain.schema import SystemMessage
+from langchain.schema import SystemMessage, HumanMessage, AIMessage
 from langchain.chains import RetrievalQA
 from utils.retriever import vectorstore
 from utils.prompt_loader import load_prompt
 from model.constitution_model import constitution_llm
 import traceback
+from enum import Enum
 
 router = APIRouter()
 
@@ -22,42 +23,65 @@ class DiagnoseResponse(BaseModel):
     can_diagnose: bool
     next_question: Optional[str] = None
 
+class ConstitutionEnum(str, Enum):
+    geumyang = "금양"
+    geumeum = "금음"
+    suyangeum = "수양"
+    sueum = "수음"
+    mogyang = "목양"
+    mokeum = "목음"
+    toyang = "토양"
+    toeum = "토음"
+
 class DiagnosisModel(BaseModel):
-    constitution: str = Field(..., alias="체질")
+    constitution: ConstitutionEnum = Field(..., alias="체질")
     reason: str = Field(..., alias="진단이유")
     confidence: float
     class Config:
         allow_population_by_field_name = True
 
 parser = PydanticOutputParser(pydantic_object=DiagnosisModel)
+format_instructions = parser.get_format_instructions()
 
 # --- LLM 및 RAG 설정
 llm = constitution_llm
+
 retriever = vectorstore.as_retriever()
 
 async def generate_question(answers: List[Dict[str, str]]) -> str:
-    history = "\n".join([f"Q: {qa['question']}\nA: {qa['answer']}" for qa in answers])
+    # 시스템 프롬프트 로드
+    history_text = "\n".join([f"Q: {qa['question']}\nA: {qa['answer']}" for qa in answers])
     prompt = load_prompt("consitituion_diagnose/constitution_diagnose_answer_prompt.json")
-    formatted = prompt.format(qa_list=history)
-    print("QAHISTORY:", history)
-    print("PROMPT:", formatted)
-    resp = await llm.agenerate([[SystemMessage(content=formatted)]])
+    formatted_system = prompt.format(qa_list=history_text)
+    print("QAHISTORY:", history_text)
+    # 대화 메시지 구성: system + (AIMessage(question), HumanMessage(answer))*
+    messages = [SystemMessage(content=formatted_system)]
+    for qa in answers:
+        messages.append(AIMessage(content=qa['question']))
+        messages.append(HumanMessage(content=qa['answer']))
+    # LLM에 메시지 전달하여 질문 생성
+    resp = await llm.agenerate([messages])
     question = resp.generations[0][0].text.strip()
     print("Generated question:", question)
     return question
 
 async def perform_diagnose(answers: List[Dict[str, str]]) -> DiagnosisModel:
+    # 프롬프트 로드 및 포맷
     prompt = load_prompt("consitituion_diagnose/constitution_diagnose_prompt.json")
-    rag_chain = RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=retriever,
-        question_prompt=prompt
-    )
-    user_input = "\n".join([f"Q: {qa['question']}\nA: {qa['answer']}" for qa in answers])
-    result = await rag_chain.acall({"query": user_input})
-    content = result.get("result", result.get("text", ""))
+    history_text = "\n".join([f"Q: {qa['question']}\nA: {qa['answer']}" for qa in answers])
+    # format_instructions를 포함하여 시스템 메시지 구성
+    formatted_system = prompt.format(qa_list=history_text, format_instructions=format_instructions)
+    print("DIAGNOSIS HISTORY:", history_text)
+    # 메시지 리스트 구성: System → (AIMessage, HumanMessage)*
+    messages = [SystemMessage(content=formatted_system)]
+    for qa in answers:
+        messages.append(AIMessage(content=qa['question']))
+        messages.append(HumanMessage(content=qa['answer']))
+    # LLM 호출
+    resp = await llm.agenerate([messages])
+    content = resp.generations[0][0].text.strip()
     print("Diagnosis LLM output:", content)
+    # 결과 파싱
     parsed: DiagnosisModel = parser.parse(content)
     return parsed
 
@@ -65,6 +89,7 @@ async def perform_diagnose(answers: List[Dict[str, str]]) -> DiagnosisModel:
 @router.post("/", response_model=DiagnoseResponse)
 async def diagnose(request: DiagnoseRequest):
     try:
+        print("request:", request)
         answers = request.answers or []
         # 1) 초기 질문
         if not answers:
@@ -81,7 +106,7 @@ async def diagnose(request: DiagnoseRequest):
         # 3) 진단 수행
         diag_result = await perform_diagnose(answers)
         # 4) 신뢰도 판단 및 추가 질문
-        if len(answers) < 10 and diag_result.confidence < 0.7:
+        if len(answers) < 10 and diag_result.confidence < 0.85:
             question = await generate_question(answers)
             return DiagnoseResponse(
                 constitution="", reason="", confidence=0.0, can_diagnose=False, next_question=question
