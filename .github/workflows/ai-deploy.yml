@@ -1,0 +1,35 @@
+name: Docker Build and Deploy
+on:
+  push:
+    branches:
+      - develop
+    tags:
+      - '*'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v2
+        with:
+          context: ./llm
+          file: ./llm/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USER }}/${{ secrets.DOCKER_REPOSITORY }}:llm-${{ github.ref_name }}
+            ${{ secrets.DOCKER_USER }}/${{ secrets.DOCKER_REPOSITORY }}:llm-latest
+
+      - name: Trigger Deploy repo
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.DEPLOY_REPO_TOKEN }}
+          repository: constitution-recipes/Deploy
+          event-type: ai-data-updated 
