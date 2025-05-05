@@ -1,12 +1,26 @@
 import os
 from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
+from core.config import settings
 
 # 환경 변수에서 API 키 사용
-embeddings = OpenAIEmbeddings(openai_api_key=os.environ.get("OPENAI_API_KEY"))
+recipe_embedding = OpenAIEmbeddings(
+    model="text-embedding-3-small",
+    api_key=settings.OPENAI_API_KEY,
+)
 # Chroma DB 디렉토리 설정
+recipe_vector_store = Chroma(
+    embedding_function=recipe_embedding,
+    collection_name="recipe_vector_store",
+    persist_directory="./chroma.sqlite3",
+)
+
+recipe_retriever = recipe_vector_store.as_retriever(search_kwargs={"k": 4})
+reteriver = recipe_vector_store.as_retriever(search_kwargs={"k": 4})
 vectorstore = Chroma(
-    collection_name="constitution",
-    persist_directory=os.environ.get("CHROMA_PERSIST_DIR", "./chroma_db"),
-    embedding_function=embeddings
-) 
+    embedding_function=recipe_embedding,
+    collection_name="recipe_vector_store",
+    persist_directory="./chroma.sqlite3e",
+)
+
+

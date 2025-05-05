@@ -12,5 +12,7 @@ langgraph
 chromadb
 pydantic
 langsmith
-
+langchain-google-genai
+langchain-anthropic
+langchain_community
 langchain-chroma>=0.1.2

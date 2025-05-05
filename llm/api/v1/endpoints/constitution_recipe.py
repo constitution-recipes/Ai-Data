@@ -11,6 +11,10 @@ import os
 from utils.prompt_loader import load_prompt
 from langsmith import traceable
 from model.recipe_model import recipe_llm
+from utils.evaluator.recipe_evaluator import evaluate_qa, evaluate_recipe
+from langchain_core.messages import HumanMessage, AIMessage
+from model.recipe_model import get_recipe_llm
+from model.get_llm import get_llm
 
 LANGSMITH_TRACING = config.settings.LANGSMITH_TRACING
 LANGSMITH_API_KEY = config.settings.LANGSMITH_API_KEY
@@ -21,6 +25,8 @@ LANGSMITH_PROJECT_NAME = config.settings.LANGSMITH_PROJECT_NAME
 os.environ['OPENAI_API_KEY'] = config.settings.OPENAI_API_KEY
 openai.api_key = config.settings.OPENAI_API_KEY
 
+router = APIRouter()
+
 class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     feature: Optional[str] = None
@@ -30,7 +36,10 @@ class ChatResponse(BaseModel):
     message: str
     is_recipe: bool = False
     error: Optional[str] = None
-
+    qa_result: Optional[List[Dict[str, str]]] = None
+    recipe_result: Optional[List[Dict[str, str]]] = None
+    qa_score: Optional[float] = None
+    recipe_score: Optional[float] = None
 # ChatOpenAI에 openai_api_key 파라미터로 전달하여 OpenAI 클라이언트에 API 키 설정
 llm = recipe_llm
 
@@ -52,70 +61,78 @@ class Recipe(BaseModel):
     nutritionalInfo: str = Field(..., description="영양 정보")
 
 parser = PydanticOutputParser(pydantic_object=Recipe)
-format_instructions = parser.get_format_instructions()
+
+def request_to_input(request: ChatRequest):
+    prompt_template = load_prompt("constitution_recipe/consitiution_recipe_base_prompt.json")
+    format_instructions = parser.get_format_instructions()
+    formatted = prompt_template.format(format_instructions=format_instructions)
+    system_message = {"role": "system", "content": formatted}
+    parser_message = {"role": "system", "content": f"응답 형식 지침:\n{format_instructions}"}
+    composite_messages = [system_message, parser_message]
+    for qa in request.messages:
+        if qa['role'] == 'user':
+            composite_messages.append(HumanMessage(content=qa['content']))
+        else:
+            composite_messages.append(AIMessage(content=qa['content']))
+    return composite_messages
+def output_to_json_response(request: ChatRequest,content: str):
+    # 레시피 감지 플래그
+    recipe_detected = False
+    try:
+        # PydanticOutputParser로 단일 Recipe 파싱
+        recipe_obj = parser.parse(content)
+        recipes_list = [recipe_obj.dict()]
+        response_message = json.dumps(recipes_list, ensure_ascii=False)
+        recipe_detected = True
+    except Exception as e:
+        print(f'[{datetime.now()}] 레시피 파싱 에러: {str(e)}')
+        # fallback: JSON array 혹은 객체 형태인지 검사
+        try:
+            parsed = json.loads(content)
+            # 객체 하나
+            if isinstance(parsed, dict) and 'title' in parsed and 'ingredients' in parsed:
+                recipes_list = [parsed]
+                response_message = json.dumps(recipes_list, ensure_ascii=False)
+                recipe_detected = True
+            # 배열 형태
+            elif isinstance(parsed, list) and parsed and isinstance(parsed[0], dict) \
+                    and 'title' in parsed[0] and 'ingredients' in parsed[0]:
+                recipes_list = parsed
+                response_message = content
+                recipe_detected = True
+            else:
+                recipes_list = []
+                response_message = content
+        except Exception as json_err:
+            print(f'[{datetime.now()}] JSON 파싱 에러: {str(json_err)}')
+            recipes_list = []
+            response_message = content
+    
+    # 레시피 평가
+    if recipe_detected:
+        # 레시피 평가 프롬프트 로드
+        qa_result, qa_score = evaluate_qa(request.messages)
+        print(f"[{datetime.now()}] 레시피 평가 결과: {qa_result}, 점수: {qa_score}")
+        recipe_result, recipe_score = evaluate_recipe(request.messages, response_message)
+        print(f"[{datetime.now()}] 레시피 평가 결과: {recipe_result}, 점수: {recipe_score}")
+        print(f"[{datetime.now()}] 체질 레시피 응답 완료: is_recipe={recipe_detected}")
+        return ChatResponse(message=response_message, is_recipe=recipe_detected, qa_result=qa_result, recipe_result=recipe_result, qa_score=qa_score, recipe_score=recipe_score)
+    return ChatResponse(message=response_message, is_recipe=recipe_detected)
 
 
-router = APIRouter()
 @router.post("", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     print(f"[{datetime.now()}] 체질 레시피 요청 시작: session_id={request.session_id}, feature={request.feature}")
     try:
-        # 기본 system prompt를 외부 JSON 파일로 로드
-        prompt_template = load_prompt("constitution_recipe/consitiution_recipe_base_prompt.json")
-        formatted = prompt_template.format(format_instructions=format_instructions)
-        system_message = {"role": "system", "content": formatted}
-        # output parser 지침 메시지
-        # 선택된 기능에 따른 추가 프롬프트 구성
-        feature_mapping = {
-            "customize": "요구사항 커스터마이즈: 사용자의 알레르기, 선호, 상황(인원수, 식이 제한 등)에 따라 재료와 조리법을 자동 조정해야 해.",
-            "diet": "다이어트 플랜: 사용자의 건강 목표(체중 감량, 저탄수, 고단백 등)에 맞춘 식단과 레시피를 제안해야 해.",
-            "event": "이벤트 메뉴: 파티, 명절 등 특정 이벤트에 어울리는 메뉴와 조리 가이드를 제안해야 해.",
-            "difficulty": "난이도 조정: 요리 초보~전문가까지 사용자의 수준에 맞춰 레시피 난이도를 조절해야 해."
-        }
-        composite_messages = [system_message]
-        # 'general'은 추가 프롬프트 없이 기본 체질 프롬프트만 사용
-        if request.feature and request.feature in feature_mapping:
-            composite_messages.append({"role": "system", "content": feature_mapping[request.feature]})
-        composite_messages += request.messages
-        resp = llm.invoke(composite_messages)
+        composite_messages = request_to_input(request)
+        resp = get_recipe_llm("recipe_llm").invoke(composite_messages)
+    
         content = resp.content
         print("메시지 내용: ", content)
 
-        # 레시피 감지 플래그
-        recipe_detected = False
+        chat_json_response = output_to_json_response(request,content)
+        return chat_json_response
         # PydanticOutputParser로 content 파싱
-        try:
-            # PydanticOutputParser로 단일 Recipe 파싱
-            recipe_obj = parser.parse(content)
-            recipes_list = [recipe_obj.dict()]
-            response_message = json.dumps(recipes_list, ensure_ascii=False)
-            recipe_detected = True
-        except Exception as e:
-            print(f'[{datetime.now()}] 레시피 파싱 에러: {str(e)}')
-            # fallback: JSON array 혹은 객체 형태인지 검사
-            try:
-                parsed = json.loads(content)
-                # 객체 하나
-                if isinstance(parsed, dict) and 'title' in parsed and 'ingredients' in parsed:
-                    recipes_list = [parsed]
-                    response_message = json.dumps(recipes_list, ensure_ascii=False)
-                    recipe_detected = True
-                # 배열 형태
-                elif isinstance(parsed, list) and parsed and isinstance(parsed[0], dict) \
-                     and 'title' in parsed[0] and 'ingredients' in parsed[0]:
-                    recipes_list = parsed
-                    response_message = content
-                    recipe_detected = True
-                else:
-                    recipes_list = []
-                    response_message = content
-            except Exception as json_err:
-                print(f'[{datetime.now()}] JSON 파싱 에러: {str(json_err)}')
-                recipes_list = []
-                response_message = content
-        
-        print(f"[{datetime.now()}] 체질 레시피 응답 완료: is_recipe={recipe_detected}")
-        return ChatResponse(message=response_message, is_recipe=recipe_detected)
     except openai.APIError as e:
         error_msg = f"OpenAI API 오류: {str(e)}"
         print(f"[{datetime.now()}] {error_msg}")
@@ -152,3 +169,55 @@ async def chat(request: ChatRequest):
             is_recipe=False,
             error=error_msg
         )
+
+class TestRequest(BaseModel):
+    qa_history_json: str
+    provider: str
+    model: str
+    prompt_str: str
+
+class TestResponse(BaseModel):
+    prompt_str: str
+    provider: str
+    model: str
+    qa_result: List[Dict[str, Any]]
+    qa_score: float
+    recipe_result: List[Dict[str, Any]]
+    recipe_score: float
+    average_score: float
+
+@router.post("/test", response_model=TestResponse, summary="모델 및 프롬프트 테스트")
+async def test_constitution_recipe(req: TestRequest):
+    try:
+        # parse QA history JSON
+        history = json.loads(req.qa_history_json)
+        # QA 평가
+        qa_result, qa_score = evaluate_qa(history)
+        # 모델 인스턴스 생성
+        llm_instance = get_llm(req.provider, req.model)
+        # 메시지 구성: system prompt + 대화 히스토리
+        system_msg = {"role": "system", "content": req.prompt_str}
+        composite_messages = [system_msg]
+        for msg in history:
+            if msg.get("role") == "user":
+                composite_messages.append(HumanMessage(content=msg.get("content")))
+            else:
+                composite_messages.append(AIMessage(content=msg.get("content")))
+        # 레시피 생성
+        resp = llm_instance.invoke(composite_messages)
+        content = resp.content
+        # 레시피 평가
+        recipe_result, recipe_score = evaluate_recipe(history, content)
+        average_score = (qa_score + recipe_score) / 2
+        return TestResponse(
+            prompt_str=req.prompt_str,
+            provider=req.provider,
+            model=req.model,
+            qa_result=qa_result,
+            qa_score=qa_score,
+            recipe_result=recipe_result,
+            recipe_score=recipe_score,
+            average_score=average_score
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

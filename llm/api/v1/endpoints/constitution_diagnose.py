@@ -48,6 +48,7 @@ llm = constitution_llm
 
 retriever = vectorstore.as_retriever()
 
+
 async def generate_question(answers: List[Dict[str, str]]) -> str:
     # 시스템 프롬프트 로드
     history_text = "\n".join([f"Q: {qa['question']}\nA: {qa['answer']}" for qa in answers])
