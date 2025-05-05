@@ -14,4 +14,13 @@ def load_prompt(filename: str) -> PromptTemplate:
     if not file_path.exists():
         raise FileNotFoundError(f"Prompt file not found: {file_path}")
     text = file_path.read_text(encoding="utf-8")
+    # JSON 템플릿 지원
+    if file_path.suffix.lower() == ".json":
+        import json
+        data = json.loads(text)
+        # 첫 번째 키 사용
+        key = next(iter(data))
+        tpl = data[key]
+        return PromptTemplate(template=tpl["template"], input_variables=tpl.get("input_variables", []))
+    # MD 템플릿 지원
     return PromptTemplate.from_template(text) 

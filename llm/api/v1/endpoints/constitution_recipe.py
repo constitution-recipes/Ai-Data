@@ -1,13 +1,14 @@
 from fastapi import FastAPI, HTTPException, APIRouter
 from langchain.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import openai
 import json
+import traceback
 from datetime import datetime
 import core.config as config
 import os
-
+from utils.prompt_loader import load_prompt
 from langsmith import traceable
 from model.recipe_model import recipe_llm
 
@@ -28,6 +29,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     message: str
     is_recipe: bool = False
+    error: Optional[str] = None
 
 # ChatOpenAI에 openai_api_key 파라미터로 전달하여 OpenAI 클라이언트에 API 키 설정
 llm = recipe_llm
@@ -56,20 +58,13 @@ format_instructions = parser.get_format_instructions()
 router = APIRouter()
 @router.post("", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    print("도착")
+    print(f"[{datetime.now()}] 체질 레시피 요청 시작: session_id={request.session_id}, feature={request.feature}")
     try:
-        # 대화형 챗봇 역할, 요구사항 수집 흐름 및 JSON 출력 방식 정의
-        base_prompt = (
-            "너는 한의학 기반 체질 의학 전문가이자 대화형 챗봇이야. "
-            "체질, 알레르기, 건강 상태, 식이 제한, 원하는 음식, 조리 도구, 인원수 등을 차례대로 물어보고, "
-            "사용자가 '네'라고 답하기 전까지는 레시피를 제공하지 말고 반드시 추가 질문을 이어가. "
-            "사용자가 '네'라고 답하면, 지금까지 수집된 모든 요구사항을 바탕으로 하나의 레시피를 생성해. "
-            "출력 형식 지침(format_instructions)에 따라 하나의 JSON 객체만 반환하고, "
-            "절대로 Markdown, 코드펜스, 설명 문구 없이 순수 JSON만 출력해야 해."
-        )
-        system_message = {"role": "system", "content": base_prompt}
+        # 기본 system prompt를 외부 JSON 파일로 로드
+        prompt_template = load_prompt("constitution_recipe/consitiution_recipe_base_prompt.json")
+        formatted = prompt_template.format(format_instructions=format_instructions)
+        system_message = {"role": "system", "content": formatted}
         # output parser 지침 메시지
-        parser_message = {"role": "system", "content": f"응답 형식 지침:\n{format_instructions}"}
         # 선택된 기능에 따른 추가 프롬프트 구성
         feature_mapping = {
             "customize": "요구사항 커스터마이즈: 사용자의 알레르기, 선호, 상황(인원수, 식이 제한 등)에 따라 재료와 조리법을 자동 조정해야 해.",
@@ -77,7 +72,7 @@ async def chat(request: ChatRequest):
             "event": "이벤트 메뉴: 파티, 명절 등 특정 이벤트에 어울리는 메뉴와 조리 가이드를 제안해야 해.",
             "difficulty": "난이도 조정: 요리 초보~전문가까지 사용자의 수준에 맞춰 레시피 난이도를 조절해야 해."
         }
-        composite_messages = [system_message, parser_message]
+        composite_messages = [system_message]
         # 'general'은 추가 프롬프트 없이 기본 체질 프롬프트만 사용
         if request.feature and request.feature in feature_mapping:
             composite_messages.append({"role": "system", "content": feature_mapping[request.feature]})
@@ -96,7 +91,7 @@ async def chat(request: ChatRequest):
             response_message = json.dumps(recipes_list, ensure_ascii=False)
             recipe_detected = True
         except Exception as e:
-            print('파싱 에러:', e)
+            print(f'[{datetime.now()}] 레시피 파싱 에러: {str(e)}')
             # fallback: JSON array 혹은 객체 형태인지 검사
             try:
                 parsed = json.loads(content)
@@ -114,11 +109,46 @@ async def chat(request: ChatRequest):
                 else:
                     recipes_list = []
                     response_message = content
-            except Exception:
+            except Exception as json_err:
+                print(f'[{datetime.now()}] JSON 파싱 에러: {str(json_err)}')
                 recipes_list = []
                 response_message = content
-        # MongoDB에 대화 및 레시피 저장
-        # 레시피 여부 플래그 설정 (JSON 파싱 감지 기준)
+        
+        print(f"[{datetime.now()}] 체질 레시피 응답 완료: is_recipe={recipe_detected}")
         return ChatResponse(message=response_message, is_recipe=recipe_detected)
+    except openai.APIError as e:
+        error_msg = f"OpenAI API 오류: {str(e)}"
+        print(f"[{datetime.now()}] {error_msg}")
+        traceback.print_exc()
+        return ChatResponse(
+            message="레시피 생성 중 AI 서비스 연결 오류가 발생했습니다. 잠시 후 다시 시도해주세요.", 
+            is_recipe=False,
+            error=error_msg
+        )
+    except openai.APIConnectionError as e:
+        error_msg = f"OpenAI API 연결 오류: {str(e)}"
+        print(f"[{datetime.now()}] {error_msg}")
+        traceback.print_exc()
+        return ChatResponse(
+            message="AI 서비스 연결에 실패했습니다. 네트워크 연결을 확인하고 다시 시도해주세요.",
+            is_recipe=False,
+            error=error_msg
+        )
+    except openai.RateLimitError as e:
+        error_msg = f"OpenAI API 속도 제한 오류: {str(e)}"
+        print(f"[{datetime.now()}] {error_msg}")
+        traceback.print_exc()
+        return ChatResponse(
+            message="현재 서비스가 많이 사용되고 있습니다. 잠시 후 다시 시도해주세요.",
+            is_recipe=False,
+            error=error_msg
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        error_msg = f"알 수 없는 오류: {str(e)}"
+        print(f"[{datetime.now()}] {error_msg}")
+        traceback.print_exc()
+        return ChatResponse(
+            message="레시피를 생성하는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+            is_recipe=False,
+            error=error_msg
+        )
