@@ -11,6 +11,8 @@ from langchain_chroma import Chroma
 
 from langgraph.graph import StateGraph, START, END
 
+from langchain import hub
+
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 from typing import Literal
@@ -56,6 +58,27 @@ def retrieve(state: RecipeAgentState):
     return {"context": docs}
 
 
+doc_relevance_prompt = hub.pull("langchain-ai/rag-document-relevance")
+
+
+def check_recipe_relevance(state: RecipeAgentState):
+    """주어진 state 를 기반으로 문서의 관련성 판단"""
+    query = state["query"]
+    context = state["context"]
+    # retrieve_context = state["retrieve_context"]
+    # chain
+    relevance_chain = doc_relevance_prompt | llm
+    response = relevance_chain.invoke({"question": query, "documents": context})
+    
+    if response["Score"] == 1:
+        print("checked: relevent")
+        return "relevant"
+
+    print("checked: no relevent")
+    return "no_relevant"
+
+
+
 recipe_template = """
 너는 전문 요리사로서 아래 관련 레시피를 참고해서 질문에 기반한 새로운 레시피를 만들어줘.
 관련 레시피:
@@ -88,9 +111,18 @@ graph_builder = StateGraph(RecipeAgentState)
 # add node
 graph_builder.add_node('retrieve', retrieve)
 graph_builder.add_node('generate', generate)
+graph_builder.add_node
 
 # add edge
 graph_builder.add_edge(START, 'retrieve')
+graph_builder.add_conditional_edges(
+    "retrieve",
+    check_recipe_relevance,
+    {
+        "relevant": "generate",
+        "no_relevant": END
+    }
+)
 graph_builder.add_edge('generate', END)
 
 recipe_graph = graph_builder.compile()
