@@ -17,6 +17,7 @@ from utils.retriever import recipe_retriever
 from langchain import hub
 from typing import TypedDict
 from prompt.get_prompt import get_prompt
+from utils.evaluator.recipe_evaluator import evaluate_recipe
 
 def get_recipe_llm(model_name: str,):
     if model_name == "recipe_llm":
@@ -212,7 +213,19 @@ def recipe_graph_llm():
         }
     )
     graph_builder.add_edge("web_search", "generate")
-    graph_builder.add_edge('generate', END)
+    # generate 후 평가: score <= 0.8이면 재생성(retry), 그렇지 않으면 종료(accept)
+    def evaluate_recipe_score(state: RecipeAgentState) -> Literal["retry", "accept"]:
+        _, score = evaluate_recipe(state["query"], state["answer"])
+        print("evaluate_recipe score:", score)
+        return "retry" if score <= 0.8 else "accept"
+    graph_builder.add_conditional_edges(
+        "generate",
+        evaluate_recipe_score,
+        {
+            "retry": "generate",
+            "accept": END
+        }
+    )
 
 
     graph = graph_builder.compile()
