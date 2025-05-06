@@ -390,31 +390,42 @@ class AutoGenerateRecipeRequest(BaseModel):
 
 @router.post("/auto_generate", response_model=List[Recipe], summary="자동 레시피 생성", description="체질 및 선택 항목 기반 자동 레시피 생성")
 async def auto_generate_recipe(req: AutoGenerateRecipeRequest):
-    # 랜덤 값 선택
-    category = req.category or random.choice([e.value for e in CategoryEnum])
-    difficulty = req.difficulty or random.choice([e.value for e in DifficultyEnum])
-    keyIngredients = req.keyIngredients or [random.choice([e.value for e in KeyIngredientEnum])]
-    # 프롬프트 구성
-    prompt_template = get_prompt("constitution_recipe_auto_generate")
-    format_instructions = parser.get_format_instructions()
-    formatted = prompt_template.format(
-        constitution=req.constitution,
-        category=category,
-        difficulty=difficulty,
-        ingredients=", ".join(keyIngredients),
-        format_instructions=format_instructions
-    )
-    from langchain_core.messages import SystemMessage
-    messages = [SystemMessage(content=formatted)]
-    # LLM 호출
-    llm_client = get_recipe_llm(settings.RECIPE_LLM_NAME)
-    resp = llm_client.invoke(messages)
-    content = getattr(resp, "content", resp.get("query"))
-    # 파싱
-    try:
-        recipe_obj = parser.parse(content)
-        return [recipe_obj.dict()]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"레시피 파싱 실패: {e}")
+    """체질·선택항목 기반으로 최대 3회 레시피를 생성·검증하여 반환합니다."""
+    max_retries = 3
+    for attempt in range(max_retries):
+        # 파라미터 선택 (명시값 또는 랜덤)
+        category = req.category or random.choice([e.value for e in CategoryEnum])
+        difficulty = req.difficulty or random.choice([e.value for e in DifficultyEnum])
+        keyIngredients = req.keyIngredients or [random.choice([e.value for e in KeyIngredientEnum])]
+        # 프롬프트 구성
+        prompt_template = get_prompt("constitution_recipe_auto_generate")
+        format_instructions = parser.get_format_instructions()
+        formatted = prompt_template.format(
+            constitution=req.constitution,
+            category=category,
+            difficulty=difficulty,
+            ingredients=", ".join(keyIngredients),
+            format_instructions=format_instructions
+        )
+        from langchain_core.messages import SystemMessage
+        messages = [SystemMessage(content=formatted)]
+        # LLM 호출
+        llm_client = get_recipe_llm(settings.RECIPE_LLM_NAME)
+        resp = llm_client.invoke(messages)
+        content = getattr(resp, "content", resp.get("query"))
+        # 파싱 시도
+        try:
+            recipe_obj = parser.parse(content)
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise HTTPException(status_code=500, detail=f"레시피 파싱 실패: {e}")
+            continue
+        # 레시피 검증 (score >= 0.8)
+        eval_result, eval_score = evaluate_recipe([], content)
+        if eval_score >= 0.8:
+            return [recipe_obj.dict()]
+        # 기준 미달 시 재생성
+    # 재시도 후에도 기준 미달
+    raise HTTPException(status_code=500, detail="레시피 검증 실패: 기준을 만족하는 레시피를 생성하지 못했습니다.")
     
     
