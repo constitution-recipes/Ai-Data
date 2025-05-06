@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     MONGODB_DB_NAME: str = Field(..., alias="MONGODB_DB_NAME")         # MongoDB DB 이름
     DIAGNOSIS_MODEL_NAME: str = Field(..., alias="DIAGNOSIS_MODEL_NAME")      # 체질 진단에 사용할 LLM 모델 이름
     RECIPE_MODEL_NAME: str = Field(..., alias="RECIPE_MODEL_NAME")           # 레시피 생성에 사용할 LLM 모델 이름
+    RECIPE_MODEL_COMPANY_NAME: str = Field(..., alias="RECIPE_MODEL_COMPANY_NAME") # 레시피 생성에 사용할 LLM 모델 회사 이름
     API_PREFIX: str = Field(..., alias="API_PREFIX")                   # REST API 엔드포인트 경로
     HOST: str = Field(..., alias="HOST")                               # FastAPI 호스트
     PORT: int = Field(..., alias="PORT")                               # FastAPI 포트
@@ -45,6 +46,7 @@ MONGODB_URI = settings.MONGODB_URI
 MONGODB_DB_NAME = settings.MONGODB_DB_NAME
 DIAGNOSIS_MODEL_NAME = settings.DIAGNOSIS_MODEL_NAME
 RECIPE_MODEL_NAME = settings.RECIPE_MODEL_NAME
+RECIPE_MODEL_COMPANY_NAME = settings.RECIPE_MODEL_COMPANY_NAME
 API_PREFIX = settings.API_PREFIX
 HOST = settings.HOST
 PORT = settings.PORT

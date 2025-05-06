@@ -66,7 +66,7 @@ class Recipe(BaseModel):
 
 
 def recipe_graph_llm():
-    llm = get_llm("openai", settings.RECIPE_MODEL_NAME)
+    llm = get_llm(settings.RECIPE_MODEL_COMPANY_NAME, settings.RECIPE_MODEL_NAME)
 
     graph_builder = StateGraph(RecipeAgentState)
 
