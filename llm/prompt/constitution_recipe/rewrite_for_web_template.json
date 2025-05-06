@@ -1,0 +1,6 @@
+{
+    "constitution_recipe_base_generate_prompt": {
+      "template": "사용자의 질문을 보고, 웹 검색에 용이하게 사용자의 질문을 수정해주세요.",
+      "input_variables": []
+    }
+  } 
