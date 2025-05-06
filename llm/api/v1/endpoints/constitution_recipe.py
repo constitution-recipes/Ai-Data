@@ -12,9 +12,9 @@ from utils.prompt_loader import load_prompt
 from langsmith import traceable
 from model.recipe_model import recipe_llm
 from utils.evaluator.recipe_evaluator import evaluate_qa, evaluate_recipe
-from langchain_core.messages import HumanMessage, AIMessage
-from model.recipe_model import get_recipe_llm
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from model.get_llm import get_llm
+from model.recipe_model import get_recipe_llm
 
 LANGSMITH_TRACING = config.settings.LANGSMITH_TRACING
 LANGSMITH_API_KEY = config.settings.LANGSMITH_API_KEY
@@ -61,6 +61,7 @@ class Recipe(BaseModel):
     nutritionalInfo: str = Field(..., description="영양 정보")
 
 parser = PydanticOutputParser(pydantic_object=Recipe)
+print("format_instructions",parser.get_format_instructions())
 
 def request_to_input(request: ChatRequest):
     prompt_template = load_prompt("constitution_recipe/consitiution_recipe_base_prompt.json")
@@ -111,6 +112,7 @@ def output_to_json_response(request: ChatRequest,content: str):
     # 레시피 평가
     if recipe_detected:
         # 레시피 평가 프롬프트 로드
+        print("request.messages",request.messages)
         qa_result, qa_score = evaluate_qa(request.messages)
         print(f"[{datetime.now()}] 레시피 평가 결과: {qa_result}, 점수: {qa_score}")
         recipe_result, recipe_score = evaluate_recipe(request.messages, response_message)
@@ -161,63 +163,79 @@ async def chat(request: ChatRequest):
             error=error_msg
         )
     except Exception as e:
+        import traceback
+        print('constitution_recipe.py 예외 발생:', str(e))
+        print(traceback.format_exc())
         error_msg = f"알 수 없는 오류: {str(e)}"
         print(f"[{datetime.now()}] {error_msg}")
-        traceback.print_exc()
         return ChatResponse(
             message="레시피를 생성하는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
             is_recipe=False,
             error=error_msg
         )
 
+class TestConversation(BaseModel):
+    # Conversation identifiers: either 'id' or 'sid'
+    id: Optional[str] = None
+    messages: List[Dict[str, str]]
+
 class TestRequest(BaseModel):
-    qa_history_json: str
+    message_list: List[TestConversation]
+    # AI 공급자, 모델, 시스템 프롬프트
     provider: str
     model: str
     prompt_str: str
 
-class TestResponse(BaseModel):
-    prompt_str: str
-    provider: str
-    model: str
+class TestItem(BaseModel):
+    id: str
     qa_result: List[Dict[str, Any]]
     qa_score: float
     recipe_result: List[Dict[str, Any]]
     recipe_score: float
     average_score: float
 
-@router.post("/test", response_model=TestResponse, summary="모델 및 프롬프트 테스트")
+class TestResponse(BaseModel):
+    results: List[TestItem]
+
+@router.post("/test", response_model=TestResponse, summary="모델 및 프롬프트 테스트 (다중 대화 처리)")
 async def test_constitution_recipe(req: TestRequest):
+    print(f"[{datetime.now()}] 체질 레시피 테스트 요청 시작: message_list={req}")
     try:
-        # parse QA history JSON
-        history = json.loads(req.qa_history_json)
-        # QA 평가
-        qa_result, qa_score = evaluate_qa(history)
-        # 모델 인스턴스 생성
-        llm_instance = get_llm(req.provider, req.model)
-        # 메시지 구성: system prompt + 대화 히스토리
-        system_msg = {"role": "system", "content": req.prompt_str}
-        composite_messages = [system_msg]
-        for msg in history:
-            if msg.get("role") == "user":
-                composite_messages.append(HumanMessage(content=msg.get("content")))
-            else:
-                composite_messages.append(AIMessage(content=msg.get("content")))
-        # 레시피 생성
-        resp = llm_instance.invoke(composite_messages)
-        content = resp.content
-        # 레시피 평가
-        recipe_result, recipe_score = evaluate_recipe(history, content)
-        average_score = (qa_score + recipe_score) / 2
-        return TestResponse(
-            prompt_str=req.prompt_str,
-            provider=req.provider,
-            model=req.model,
-            qa_result=qa_result,
-            qa_score=qa_score,
-            recipe_result=recipe_result,
-            recipe_score=recipe_score,
-            average_score=average_score
-        )
+        results: List[TestItem] = []
+        for conv in req.message_list:
+            history = conv.messages
+            # QA 평가
+            qa_result, qa_score = evaluate_qa(history)
+            # 동적 LLM 인스턴스 생성
+            llm_instance = get_llm(req.provider, req.model)
+            # 시스템 프롬프트 + 대화 메시지 구성
+            composite: List[Any] = [SystemMessage(content=req.prompt_str)]
+            for msg in history:
+                if msg.get("role") == "user":
+                    composite.append(HumanMessage(content=msg["content"]))
+                else:
+                    composite.append(AIMessage(content=msg["content"]))
+            # 레시피 생성
+            resp = llm_instance.invoke(composite)
+            # 레시피 평가
+            recipe_result, recipe_score = evaluate_recipe(history, resp.content)
+            # 평균 점수
+            average_score = (qa_score + recipe_score) / 2
+            conv_id = conv.id or conv.sid or ""
+            results.append(TestItem(
+                id=conv_id,
+                qa_result=qa_result,
+                qa_score=qa_score,
+                recipe_result=recipe_result,
+                recipe_score=recipe_score,
+                average_score=average_score
+            ))
+            print("results",results)
+        return TestResponse(results=results)
     except Exception as e:
+        import traceback
+        print('constitution_recipe.py 예외 발생:', str(e))
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+    
+    
