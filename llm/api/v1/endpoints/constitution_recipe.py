@@ -17,6 +17,7 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from model.get_llm import get_llm
 from model.recipe_model import get_recipe_llm
 from core.config import settings
+from enum import Enum
 
 LANGSMITH_TRACING = config.settings.LANGSMITH_TRACING
 LANGSMITH_API_KEY = config.settings.LANGSMITH_API_KEY
@@ -50,11 +51,35 @@ class ChatResponse(BaseModel):
 # ChatOpenAI에 openai_api_key 파라미터로 전달하여 OpenAI 클라이언트에 API 키 설정
 llm = recipe_llm
 
+# 카테고리 Enum 정의
+class CategoryEnum(str, Enum):
+    KOREAN = "한식"
+    CHINESE = "중식"
+    JAPANESE = "일식"
+    WESTERN = "양식"
+    DESSERT = "디저트"
+    BEVERAGE = "음료"
+
+# 난이도 Enum 정의
+class DifficultyEnum(str, Enum):
+    EASY = "쉬움"
+    MEDIUM = "중간"
+    HARD = "어려움"
+
+# 중요 재료 Enum 정의
+class KeyIngredientEnum(str, Enum):
+    MEAT = "육류"
+    SEAFOOD = "해산물"
+    VEGETABLE = "채소"
+    FRUIT = "과일"
+    DAIRY = "유제품"
+    NUTS = "견과류"
+
 # PydanticOutputParser 설정: 하나의 Recipe만 반환
 class Recipe(BaseModel):
     title: str = Field(..., description="레시피 제목")
     description: str = Field(..., description="레시피 설명")
-    difficulty: str = Field(..., description="난이도")
+    difficulty: DifficultyEnum = Field(..., description="난이도")
     cookTime: str = Field(..., description="조리 시간")
     ingredients: list[str] = Field(..., description="재료 목록")
     image: str = Field(..., description="이미지 URL")
@@ -66,6 +91,8 @@ class Recipe(BaseModel):
     steps: list[str] = Field(..., description="조리 단계 리스트")
     servings: str = Field(..., description="인분 정보")
     nutritionalInfo: str = Field(..., description="영양 정보")
+    category: CategoryEnum = Field(..., description="카테고리")
+    keyIngredients: list[KeyIngredientEnum] = Field(..., description="중요 재료")
 
 parser = PydanticOutputParser(pydantic_object=Recipe)
 print("format_instructions",parser.get_format_instructions())
