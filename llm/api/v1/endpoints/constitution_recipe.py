@@ -66,18 +66,16 @@ parser = PydanticOutputParser(pydantic_object=Recipe)
 print("format_instructions",parser.get_format_instructions())
 
 def request_to_input(request: ChatRequest):
-    prompt_template = get_prompt(settings.CONSTITUTION_RECIPE_BASE_PROMPT_NAME)
-    format_instructions = parser.get_format_instructions()
-    formatted = prompt_template.format(format_instructions=format_instructions)
-    # system_message = {"role": "system", "content": formatted}
-    # parser_message = {"role": "system", "content": f"응답 형식 지침:\n{format_instructions}"}
-    composite_messages = [SystemMessage(content=formatted), SystemMessage(content=f"응답 형식 지침:\n{format_instructions}")]
+    composite_messages = []
+
     for qa in request.messages:
         if qa['role'] == 'user':
             composite_messages.append(HumanMessage(content=qa['content']))
         else:
             composite_messages.append(AIMessage(content=qa['content']))
     return composite_messages
+
+
 def output_to_json_response(request: ChatRequest,content: str):
     # 레시피 감지 플래그
     recipe_detected = False
@@ -113,13 +111,8 @@ def output_to_json_response(request: ChatRequest,content: str):
     
     # 레시피 평가
     if recipe_detected:
-        # 레시피 평가 프롬프트 로드
-        print("request.messages",request.messages)
         qa_result, qa_score = evaluate_qa(request.messages)
-        print(f"[{datetime.now()}] 레시피 평가 결과: {qa_result}, 점수: {qa_score}")
         recipe_result, recipe_score = evaluate_recipe(request.messages, response_message)
-        print(f"[{datetime.now()}] 레시피 평가 결과: {recipe_result}, 점수: {recipe_score}")
-        print(f"[{datetime.now()}] 체질 레시피 응답 완료: is_recipe={recipe_detected}")
         return ChatResponse(message=response_message, is_recipe=recipe_detected, qa_result=qa_result, recipe_result=recipe_result, qa_score=qa_score, recipe_score=recipe_score)
     return ChatResponse(message=response_message, is_recipe=recipe_detected)
 
@@ -128,11 +121,16 @@ def output_to_json_response(request: ChatRequest,content: str):
 async def chat(request: ChatRequest):
     print(f"[{datetime.now()}] 체질 레시피 요청 시작: session_id={request.session_id}, feature={request.feature}")
     try:
-        composite_messages = request_to_input(request)
+        history_message = request_to_input(request)
         if "graph" in settings.RECIPE_LLM_NAME:
-            resp = get_recipe_llm(settings.RECIPE_LLM_NAME).invoke({"query": composite_messages})
+            resp = get_recipe_llm(settings.RECIPE_LLM_NAME).invoke({"query": history_message})
             content = resp['query']
         else:
+            prompt_template = get_prompt(settings.CONSTITUTION_RECIPE_BASE_PROMPT_NAME)
+            format_instructions = parser.get_format_instructions()
+            formatted = prompt_template.format(format_instructions=format_instructions)
+            composite_messages = [SystemMessage(content=formatted), SystemMessage(content=f"응답 형식 지침:\n{format_instructions}")]
+            composite_messages.extend(history_message)
             resp = get_recipe_llm(settings.RECIPE_LLM_NAME).invoke(composite_messages)
             content = resp.content
 
