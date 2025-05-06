@@ -9,6 +9,8 @@ from utils.prompt_loader import load_prompt
 from model.constitution_model import constitution_llm
 import traceback
 from enum import Enum
+from core.config import settings
+from prompt.get_prompt import get_prompt
 
 router = APIRouter()
 
@@ -52,7 +54,7 @@ retriever = vectorstore.as_retriever()
 async def generate_question(answers: List[Dict[str, str]]) -> str:
     # 시스템 프롬프트 로드
     history_text = "\n".join([f"Q: {qa['question']}\nA: {qa['answer']}" for qa in answers])
-    prompt = load_prompt("consitituion_diagnose/constitution_diagnose_answer_prompt.json")
+    prompt = get_prompt(settings.CONSTITUTION_DIAGNOSE_ANSWER_PROMPT_NAME)
     formatted_system = prompt.format(qa_list=history_text)
     print("QAHISTORY:", history_text)
     # 대화 메시지 구성: system + (AIMessage(question), HumanMessage(answer))*
@@ -68,7 +70,7 @@ async def generate_question(answers: List[Dict[str, str]]) -> str:
 
 async def perform_diagnose(answers: List[Dict[str, str]]) -> DiagnosisModel:
     # 프롬프트 로드 및 포맷
-    prompt = load_prompt("consitituion_diagnose/constitution_diagnose_prompt.json")
+    prompt = get_prompt(settings.CONSTITUTION_DIAGNOSE_PROMPT_NAME)
     history_text = "\n".join([f"Q: {qa['question']}\nA: {qa['answer']}" for qa in answers])
     # format_instructions를 포함하여 시스템 메시지 구성
     formatted_system = prompt.format(qa_list=history_text, format_instructions=format_instructions)

@@ -1,0 +1,6 @@
+{
+  "constitution_recipe_user_context_prompt": {
+    "template": "사용자 정보:\n- 알레르기: {allergies}\n- 체질: {constitution}\n- 식이 제한사항: {dietary_restrictions}\n- 건강 상태: {health_conditions}\n\n위 정보를 바탕으로 질문({query})에 맞는 레시피를 추천해주세요.",
+    "input_variables": ["allergies", "constitution", "dietary_restrictions", "health_conditions", "query"]
+  }
+} 

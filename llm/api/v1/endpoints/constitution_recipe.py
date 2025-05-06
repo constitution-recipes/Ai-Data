@@ -11,10 +11,12 @@ import os
 from utils.prompt_loader import load_prompt
 from langsmith import traceable
 from model.recipe_model import recipe_llm
+from prompt.get_prompt import get_prompt
 from utils.evaluator.recipe_evaluator import evaluate_qa, evaluate_recipe
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from model.get_llm import get_llm
 from model.recipe_model import get_recipe_llm
+from core.config import settings
 
 LANGSMITH_TRACING = config.settings.LANGSMITH_TRACING
 LANGSMITH_API_KEY = config.settings.LANGSMITH_API_KEY
@@ -64,18 +66,16 @@ parser = PydanticOutputParser(pydantic_object=Recipe)
 print("format_instructions",parser.get_format_instructions())
 
 def request_to_input(request: ChatRequest):
-    prompt_template = load_prompt("constitution_recipe/consitiution_recipe_base_prompt.json")
-    format_instructions = parser.get_format_instructions()
-    formatted = prompt_template.format(format_instructions=format_instructions)
-    system_message = {"role": "system", "content": formatted}
-    parser_message = {"role": "system", "content": f"응답 형식 지침:\n{format_instructions}"}
-    composite_messages = [system_message, parser_message]
+    composite_messages = []
+
     for qa in request.messages:
         if qa['role'] == 'user':
             composite_messages.append(HumanMessage(content=qa['content']))
         else:
             composite_messages.append(AIMessage(content=qa['content']))
     return composite_messages
+
+
 def output_to_json_response(request: ChatRequest,content: str):
     # 레시피 감지 플래그
     recipe_detected = False
@@ -111,13 +111,8 @@ def output_to_json_response(request: ChatRequest,content: str):
     
     # 레시피 평가
     if recipe_detected:
-        # 레시피 평가 프롬프트 로드
-        print("request.messages",request.messages)
         qa_result, qa_score = evaluate_qa(request.messages)
-        print(f"[{datetime.now()}] 레시피 평가 결과: {qa_result}, 점수: {qa_score}")
         recipe_result, recipe_score = evaluate_recipe(request.messages, response_message)
-        print(f"[{datetime.now()}] 레시피 평가 결과: {recipe_result}, 점수: {recipe_score}")
-        print(f"[{datetime.now()}] 체질 레시피 응답 완료: is_recipe={recipe_detected}")
         return ChatResponse(message=response_message, is_recipe=recipe_detected, qa_result=qa_result, recipe_result=recipe_result, qa_score=qa_score, recipe_score=recipe_score)
     return ChatResponse(message=response_message, is_recipe=recipe_detected)
 
@@ -126,15 +121,23 @@ def output_to_json_response(request: ChatRequest,content: str):
 async def chat(request: ChatRequest):
     print(f"[{datetime.now()}] 체질 레시피 요청 시작: session_id={request.session_id}, feature={request.feature}")
     try:
-        composite_messages = request_to_input(request)
-        resp = get_recipe_llm("recipe_llm").invoke(composite_messages)
-    
-        content = resp.content
-        print("메시지 내용: ", content)
+        history_message = request_to_input(request)
+        if "graph" in settings.RECIPE_LLM_NAME:
+            resp = get_recipe_llm(settings.RECIPE_LLM_NAME).invoke({"query": history_message})
+            content = resp['query']
+        else:
+            prompt_template = get_prompt(settings.CONSTITUTION_RECIPE_BASE_PROMPT_NAME)
+            format_instructions = parser.get_format_instructions()
+            formatted = prompt_template.format(format_instructions=format_instructions)
+            composite_messages = [SystemMessage(content=formatted), SystemMessage(content=f"응답 형식 지침:\n{format_instructions}")]
+            composite_messages.extend(history_message)
+            resp = get_recipe_llm(settings.RECIPE_LLM_NAME).invoke(composite_messages)
+            content = resp.content
 
         chat_json_response = output_to_json_response(request,content)
         return chat_json_response
-        # PydanticOutputParser로 content 파싱
+        
+    # Exception 처리
     except openai.APIError as e:
         error_msg = f"OpenAI API 오류: {str(e)}"
         print(f"[{datetime.now()}] {error_msg}")

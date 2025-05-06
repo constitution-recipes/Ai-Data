@@ -1,0 +1,6 @@
+{
+    "constitution_recipe_base_generate_prompt": {
+      "template": "너는 전문 요리사로서 아래 관련 레시피를 참고해서 질문에 기반한 새로운 레시피를 만들어줘.\n관련 레시피:\n\n{context}\n\n질문:{query}",
+      "input_variables": ["context", "query"]
+    }
+  } 
