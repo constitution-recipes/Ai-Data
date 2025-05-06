@@ -8,11 +8,13 @@ from langchain_core.messages import AnyMessage, HumanMessage, AIMessage
 from langchain_community.tools import DuckDuckGoSearchRun # duckduckgosearchrun 은 무료!!!
 
 from langchain_chroma import Chroma
+from langchain.retrievers import BM25Retriever
 
 from langgraph.graph import StateGraph, START, END
 
 from langchain import hub
 
+import pandas as pd
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 from typing import Literal
@@ -30,12 +32,41 @@ llm = ChatOpenAI(model="gpt-4.1-nano")
 embedding_func = OpenAIEmbeddings(model="text-embedding-3-large")
 
 # vector_store
-vector_store = Chroma(
-    embedding_function=embedding_func,
-    collection_name="recipe_vector_store",
-    persist_directory="./recipe_vector_store",
-)
-retriever = vector_store.as_retriever(search_kwargs={"k": 4})
+def make_bm25_retriever(csv_file_path):
+    df = pd.read_csv(csv_file_path)
+
+    documents = []
+    for _, row in df.iterrows():
+        try:
+            ingredients = eval(row["재료"])
+            steps = eval(row["조리순서"])
+        except Exception:
+            ingredients = []
+            steps = []
+
+        content = (
+            f"제목: {row['제목']}\n"
+            f"재료: {', '.join(ingredients)}\n"
+            f"조리순서: {', '.join(steps)}"
+        )
+
+        documents.append(Document(
+            page_content=content,
+            metadata={
+                "name": row["제목"]
+            }
+        ))
+    retriever = BM25Retriever.from_documents(documents)
+    retriever.k = 5  # top-k 개수 설정
+    return retriever
+
+retriever = make_bm25_retriever("./recipe.csv")
+# vector_store = Chroma(
+#     embedding_function=embedding_func,
+#     collection_name="recipe_vector_store",
+#     persist_directory="./recipe_vector_store",
+# )
+# retriever = vector_store.as_retriever(search_kwargs={"k": 4})
 
 
 class RecipeAgentState(TypedDict):
