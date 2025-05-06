@@ -33,6 +33,11 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     feature: Optional[str] = None
     messages: List[Dict[str, str]]  # [{'role': 'user', 'content': '...'}, ...]
+    # 사용자 컨텍스트 필드 추가
+    allergies: Optional[List[str]] = None
+    constitution: Optional[str] = None
+    dietary_restrictions: Optional[List[str]] = None
+    health_conditions: Optional[str] = None
 
 class ChatResponse(BaseModel):
     message: str
@@ -66,8 +71,24 @@ parser = PydanticOutputParser(pydantic_object=Recipe)
 print("format_instructions",parser.get_format_instructions())
 
 def request_to_input(request: ChatRequest):
-    composite_messages = []
-
+    # 사용자 컨텍스트 정보를 system 메시지로 추가
+    user_context_prompt = load_prompt("constitution_recipe/constitution_recipe_user_context_prompt.json")
+    # 마지막 사용자 메시지를 query로 사용
+    last_user_message = ""
+    if request.messages:
+        for m in reversed(request.messages):
+            if m.get('role') == 'user':
+                last_user_message = m.get('content', "")
+                break
+    formatted_context = user_context_prompt.format(
+        allergies=request.allergies or [],
+        constitution=request.constitution or "",
+        dietary_restrictions=request.dietary_restrictions or [],
+        health_conditions=request.health_conditions or "",
+        query=last_user_message
+    )
+    composite_messages = [SystemMessage(content=formatted_context)]
+    # 기존 대화 메시지를 HumanMessage/AIMessage로 변환
     for qa in request.messages:
         if qa['role'] == 'user':
             composite_messages.append(HumanMessage(content=qa['content']))
