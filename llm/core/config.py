@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     LANGSMITH_API_KEY: Optional[str] = Field(None, alias="LANGSMITH_API_KEY") # Langsmith API 키
     LANGSMITH_ENDPOINT: Optional[str] = Field(None, alias="LANGSMITH_ENDPOINT") # Langsmith 엔드포인트
     LANGSMITH_PROJECT_NAME: Optional[str] = Field(None, alias="LANGSMITH_PROJECT_NAME") # Langsmith 프로젝트 이름
+    GEMINI_API_KEY: Optional[str] = Field(None, alias="GEMINI_API_KEY") # Gemini API 키
+    CLAUDE_API_KEY: Optional[str] = Field(None, alias="CLAUDE_API_KEY") # Claude API 키
 
     class Config:
         env_file = ".env"
@@ -38,3 +40,5 @@ LANGSMITH_TRACING = settings.LANGSMITH_TRACING
 LANGSMITH_API_KEY = settings.LANGSMITH_API_KEY
 LANGSMITH_ENDPOINT = settings.LANGSMITH_ENDPOINT
 LANGSMITH_PROJECT_NAME = settings.LANGSMITH_PROJECT_NAME
+GEMINI_API_KEY = settings.GEMINI_API_KEY
+CLAUDE_API_KEY = settings.CLAUDE_API_KEY

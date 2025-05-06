@@ -11,6 +11,10 @@ import os
 from utils.prompt_loader import load_prompt
 from langsmith import traceable
 from model.recipe_model import recipe_llm
+from utils.evaluator.recipe_evaluator import evaluate_qa, evaluate_recipe
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from model.get_llm import get_llm
+from model.recipe_model import get_recipe_llm
 
 LANGSMITH_TRACING = config.settings.LANGSMITH_TRACING
 LANGSMITH_API_KEY = config.settings.LANGSMITH_API_KEY
@@ -21,6 +25,8 @@ LANGSMITH_PROJECT_NAME = config.settings.LANGSMITH_PROJECT_NAME
 os.environ['OPENAI_API_KEY'] = config.settings.OPENAI_API_KEY
 openai.api_key = config.settings.OPENAI_API_KEY
 
+router = APIRouter()
+
 class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     feature: Optional[str] = None
@@ -30,7 +36,10 @@ class ChatResponse(BaseModel):
     message: str
     is_recipe: bool = False
     error: Optional[str] = None
-
+    qa_result: Optional[List[Dict[str, str]]] = None
+    recipe_result: Optional[List[Dict[str, str]]] = None
+    qa_score: Optional[float] = None
+    recipe_score: Optional[float] = None
 # ChatOpenAI에 openai_api_key 파라미터로 전달하여 OpenAI 클라이언트에 API 키 설정
 llm = recipe_llm
 
@@ -52,70 +61,80 @@ class Recipe(BaseModel):
     nutritionalInfo: str = Field(..., description="영양 정보")
 
 parser = PydanticOutputParser(pydantic_object=Recipe)
-format_instructions = parser.get_format_instructions()
+print("format_instructions",parser.get_format_instructions())
+
+def request_to_input(request: ChatRequest):
+    prompt_template = load_prompt("constitution_recipe/consitiution_recipe_base_prompt.json")
+    format_instructions = parser.get_format_instructions()
+    formatted = prompt_template.format(format_instructions=format_instructions)
+    system_message = {"role": "system", "content": formatted}
+    parser_message = {"role": "system", "content": f"응답 형식 지침:\n{format_instructions}"}
+    composite_messages = [system_message, parser_message]
+    for qa in request.messages:
+        if qa['role'] == 'user':
+            composite_messages.append(HumanMessage(content=qa['content']))
+        else:
+            composite_messages.append(AIMessage(content=qa['content']))
+    return composite_messages
+def output_to_json_response(request: ChatRequest,content: str):
+    # 레시피 감지 플래그
+    recipe_detected = False
+    try:
+        # PydanticOutputParser로 단일 Recipe 파싱
+        recipe_obj = parser.parse(content)
+        recipes_list = [recipe_obj.dict()]
+        response_message = json.dumps(recipes_list, ensure_ascii=False)
+        recipe_detected = True
+    except Exception as e:
+        print(f'[{datetime.now()}] 레시피 파싱 에러: {str(e)}')
+        # fallback: JSON array 혹은 객체 형태인지 검사
+        try:
+            parsed = json.loads(content)
+            # 객체 하나
+            if isinstance(parsed, dict) and 'title' in parsed and 'ingredients' in parsed:
+                recipes_list = [parsed]
+                response_message = json.dumps(recipes_list, ensure_ascii=False)
+                recipe_detected = True
+            # 배열 형태
+            elif isinstance(parsed, list) and parsed and isinstance(parsed[0], dict) \
+                    and 'title' in parsed[0] and 'ingredients' in parsed[0]:
+                recipes_list = parsed
+                response_message = content
+                recipe_detected = True
+            else:
+                recipes_list = []
+                response_message = content
+        except Exception as json_err:
+            print(f'[{datetime.now()}] JSON 파싱 에러: {str(json_err)}')
+            recipes_list = []
+            response_message = content
+    
+    # 레시피 평가
+    if recipe_detected:
+        # 레시피 평가 프롬프트 로드
+        print("request.messages",request.messages)
+        qa_result, qa_score = evaluate_qa(request.messages)
+        print(f"[{datetime.now()}] 레시피 평가 결과: {qa_result}, 점수: {qa_score}")
+        recipe_result, recipe_score = evaluate_recipe(request.messages, response_message)
+        print(f"[{datetime.now()}] 레시피 평가 결과: {recipe_result}, 점수: {recipe_score}")
+        print(f"[{datetime.now()}] 체질 레시피 응답 완료: is_recipe={recipe_detected}")
+        return ChatResponse(message=response_message, is_recipe=recipe_detected, qa_result=qa_result, recipe_result=recipe_result, qa_score=qa_score, recipe_score=recipe_score)
+    return ChatResponse(message=response_message, is_recipe=recipe_detected)
 
 
-router = APIRouter()
 @router.post("", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     print(f"[{datetime.now()}] 체질 레시피 요청 시작: session_id={request.session_id}, feature={request.feature}")
     try:
-        # 기본 system prompt를 외부 JSON 파일로 로드
-        prompt_template = load_prompt("constitution_recipe/consitiution_recipe_base_prompt.json")
-        formatted = prompt_template.format(format_instructions=format_instructions)
-        system_message = {"role": "system", "content": formatted}
-        # output parser 지침 메시지
-        # 선택된 기능에 따른 추가 프롬프트 구성
-        feature_mapping = {
-            "customize": "요구사항 커스터마이즈: 사용자의 알레르기, 선호, 상황(인원수, 식이 제한 등)에 따라 재료와 조리법을 자동 조정해야 해.",
-            "diet": "다이어트 플랜: 사용자의 건강 목표(체중 감량, 저탄수, 고단백 등)에 맞춘 식단과 레시피를 제안해야 해.",
-            "event": "이벤트 메뉴: 파티, 명절 등 특정 이벤트에 어울리는 메뉴와 조리 가이드를 제안해야 해.",
-            "difficulty": "난이도 조정: 요리 초보~전문가까지 사용자의 수준에 맞춰 레시피 난이도를 조절해야 해."
-        }
-        composite_messages = [system_message]
-        # 'general'은 추가 프롬프트 없이 기본 체질 프롬프트만 사용
-        if request.feature and request.feature in feature_mapping:
-            composite_messages.append({"role": "system", "content": feature_mapping[request.feature]})
-        composite_messages += request.messages
-        resp = llm.invoke(composite_messages)
+        composite_messages = request_to_input(request)
+        resp = get_recipe_llm("recipe_llm").invoke(composite_messages)
+    
         content = resp.content
         print("메시지 내용: ", content)
 
-        # 레시피 감지 플래그
-        recipe_detected = False
+        chat_json_response = output_to_json_response(request,content)
+        return chat_json_response
         # PydanticOutputParser로 content 파싱
-        try:
-            # PydanticOutputParser로 단일 Recipe 파싱
-            recipe_obj = parser.parse(content)
-            recipes_list = [recipe_obj.dict()]
-            response_message = json.dumps(recipes_list, ensure_ascii=False)
-            recipe_detected = True
-        except Exception as e:
-            print(f'[{datetime.now()}] 레시피 파싱 에러: {str(e)}')
-            # fallback: JSON array 혹은 객체 형태인지 검사
-            try:
-                parsed = json.loads(content)
-                # 객체 하나
-                if isinstance(parsed, dict) and 'title' in parsed and 'ingredients' in parsed:
-                    recipes_list = [parsed]
-                    response_message = json.dumps(recipes_list, ensure_ascii=False)
-                    recipe_detected = True
-                # 배열 형태
-                elif isinstance(parsed, list) and parsed and isinstance(parsed[0], dict) \
-                     and 'title' in parsed[0] and 'ingredients' in parsed[0]:
-                    recipes_list = parsed
-                    response_message = content
-                    recipe_detected = True
-                else:
-                    recipes_list = []
-                    response_message = content
-            except Exception as json_err:
-                print(f'[{datetime.now()}] JSON 파싱 에러: {str(json_err)}')
-                recipes_list = []
-                response_message = content
-        
-        print(f"[{datetime.now()}] 체질 레시피 응답 완료: is_recipe={recipe_detected}")
-        return ChatResponse(message=response_message, is_recipe=recipe_detected)
     except openai.APIError as e:
         error_msg = f"OpenAI API 오류: {str(e)}"
         print(f"[{datetime.now()}] {error_msg}")
@@ -144,11 +163,171 @@ async def chat(request: ChatRequest):
             error=error_msg
         )
     except Exception as e:
+        import traceback
+        print('constitution_recipe.py 예외 발생:', str(e))
+        print(traceback.format_exc())
         error_msg = f"알 수 없는 오류: {str(e)}"
         print(f"[{datetime.now()}] {error_msg}")
-        traceback.print_exc()
         return ChatResponse(
             message="레시피를 생성하는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
             is_recipe=False,
             error=error_msg
         )
+
+class TestConversation(BaseModel):
+    # Conversation identifiers: either 'id' or 'sid'
+    id: Optional[str] = None
+    messages: List[Dict[str, str]]
+
+class TestRequest(BaseModel):
+    message_list: List[TestConversation]
+    # AI 공급자, 모델, 시스템 프롬프트
+    provider: str
+    model: str
+    prompt_str: str
+
+class TestItem(BaseModel):
+    id: str
+    qa_result: List[Dict[str, Any]]
+    qa_score: float
+    recipe_result: List[Dict[str, Any]]  # 각 항목에 question, answer, reason 포함
+    recipe_score: float
+    average_score: float  # recipe_score만으로 할당
+    recipe_json: dict = None  # 실제 레시피 객체
+    input_tokens: Optional[int] = None  # 입력 토큰 수
+    output_tokens: Optional[int] = None  # 출력 토큰 수
+    cost: Optional[float] = None  # 비용 (USD)
+
+class TestResponse(BaseModel):
+    results: List[TestItem]
+    total_input_tokens: Optional[int] = None
+    total_output_tokens: Optional[int] = None
+    total_cost: Optional[float] = None
+    avg_cost_per_message: Optional[float] = None  # 메시지당 평균 비용 추가
+
+# 모델별 가격 정보 (1M 토큰당 USD)
+MODEL_PRICING = {
+    # OpenAI 모델
+    "gpt-4.1-2025-04-14": {"input": 2.00, "output": 8.00},
+    "gpt-4.1-nano-2025-04-14": {"input": 0.10, "output": 0.40},
+    "gpt-4o-mini-2024-07-18": {"input": 0.40, "output": 1.60},
+    "gpt-4o": {"input": 5.00, "output": 15.00},
+    "gpt-3.5-turbo": {"input": 0.50, "output": 1.50},
+    
+    # Gemini 모델
+    "gemini-2.5-flash-preview-04-17": {"input": 0.15, "output": 0.60},
+    "gemini-2.5-pro-preview-03-25": {"input": 1.25, "output": 10.00},
+    "gemini-2.0-flash": {"input": 0.10, "output": 0.40},
+    "gemini-pro": {"input": 0.25, "output": 0.75},
+    
+    # Anthropic 모델
+    "claude-3-7-sonnet-20250219": {"input": 3.00, "output": 15.00},
+    "claude-3-5-haiku-20241022": {"input": 0.80, "output": 4.00},
+    "claude-2": {"input": 8.00, "output": 24.00}
+}
+
+# 토큰 사용량 및 비용 계산 함수
+def calculate_tokens_and_cost(provider: str, model: str, response):
+    tokens = {"input": 0, "output": 0}
+    
+    # 프로바이더 및 모델별 토큰 정보 추출
+    try:
+        if provider == "openai":
+            tokens["input"] = response.response_metadata["token_usage"]["prompt_tokens"]
+            tokens["output"] = response.response_metadata["token_usage"]["completion_tokens"]
+        elif provider == "gemini":
+            tokens["input"] = response.usage_metadata["input_tokens"]
+            tokens["output"] = response.usage_metadata["output_tokens"]
+        elif provider == "claude":
+            tokens["input"] = response.response_metadata["usage"]["input_tokens"]
+            tokens["output"] = response.response_metadata["usage"]["output_tokens"]
+    except Exception as e:
+        print(f"토큰 정보 추출 오류: {e}")
+        return 0, 0, 0.0
+    
+    # 비용 계산
+    cost = 0.0
+    if model in MODEL_PRICING:
+        pricing = MODEL_PRICING[model]
+        # 1M 토큰당 가격을 실제 토큰 수에 맞게 변환
+        cost = (tokens["input"] * pricing["input"] / 1000000) + (tokens["output"] * pricing["output"] / 1000000)
+    else:
+        print(f"가격 정보가 없는 모델: {model}")
+    
+    return tokens["input"], tokens["output"], cost
+
+@router.post("/test", response_model=TestResponse, summary="모델 및 프롬프트 테스트 (다중 대화 처리)")
+async def test_constitution_recipe(req: TestRequest):
+    print(f"[{datetime.now()}] 체질 레시피 테스트 요청 시작: message_list={req}")
+    try:
+        results: List[TestItem] = []
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_cost = 0.0
+        message_count = len(req.message_list)
+        
+        for conv in req.message_list:
+            history = conv.messages
+            # QA 평가
+            qa_result, qa_score = evaluate_qa(history)
+            # 동적 LLM 인스턴스 생성
+            llm_instance = get_llm(req.provider, req.model)
+            # 시스템 프롬프트 + 대화 메시지 구성
+            composite: List[Any] = [SystemMessage(content=req.prompt_str)]
+            for msg in history:
+                if msg.get("role") == "user":
+                    composite.append(HumanMessage(content=msg["content"]))
+                else:
+                    composite.append(AIMessage(content=msg["content"]))
+            # 레시피 생성
+            resp = llm_instance.invoke(composite)
+            
+            # 토큰 사용량 및 비용 계산
+            input_tokens, output_tokens, cost = calculate_tokens_and_cost(req.provider, req.model, resp)
+            total_input_tokens += input_tokens
+            total_output_tokens += output_tokens
+            total_cost += cost
+            
+            # 레시피 평가
+            recipe_result, recipe_score = evaluate_recipe(history, resp.content)
+            # 평균 점수: recipe_score만 사용
+            average_score = recipe_score
+            conv_id = conv.id or conv.sid or ""
+            # PydanticOutputParser를 활용해 Recipe 객체 파싱
+            try:
+                recipe_obj = parser.parse(resp.content)
+                recipe_json = recipe_obj.dict()
+            except Exception as parse_err:
+                print('test_constitution_recipe parser error:', parse_err)
+                recipe_json = {}
+            results.append(TestItem(
+                id=conv_id,
+                qa_result=qa_result,
+                qa_score=qa_score,
+                recipe_result=recipe_result,
+                recipe_score=recipe_score,
+                average_score=average_score,
+                recipe_json=recipe_json,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost=cost
+            ))
+            print("results", results)
+        
+        # 메시지 수가 0이면 오류 방지를 위해 1로 설정
+        avg_cost_per_message = total_cost / max(message_count, 1)
+        
+        return TestResponse(
+            results=results, 
+            total_input_tokens=total_input_tokens,
+            total_output_tokens=total_output_tokens,
+            total_cost=total_cost,
+            avg_cost_per_message=avg_cost_per_message  # 메시지당 평균 비용 추가
+        )
+    except Exception as e:
+        import traceback
+        print('constitution_recipe.py 예외 발생:', str(e))
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    
