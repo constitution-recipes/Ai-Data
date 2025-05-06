@@ -194,15 +194,78 @@ class TestItem(BaseModel):
     recipe_score: float
     average_score: float  # recipe_score만으로 할당
     recipe_json: dict = None  # 실제 레시피 객체
+    input_tokens: Optional[int] = None  # 입력 토큰 수
+    output_tokens: Optional[int] = None  # 출력 토큰 수
+    cost: Optional[float] = None  # 비용 (USD)
 
 class TestResponse(BaseModel):
     results: List[TestItem]
+    total_input_tokens: Optional[int] = None
+    total_output_tokens: Optional[int] = None
+    total_cost: Optional[float] = None
+    avg_cost_per_message: Optional[float] = None  # 메시지당 평균 비용 추가
+
+# 모델별 가격 정보 (1M 토큰당 USD)
+MODEL_PRICING = {
+    # OpenAI 모델
+    "gpt-4.1-2025-04-14": {"input": 2.00, "output": 8.00},
+    "gpt-4.1-nano-2025-04-14": {"input": 0.10, "output": 0.40},
+    "gpt-4o-mini-2024-07-18": {"input": 0.40, "output": 1.60},
+    "gpt-4o": {"input": 5.00, "output": 15.00},
+    "gpt-3.5-turbo": {"input": 0.50, "output": 1.50},
+    
+    # Gemini 모델
+    "gemini-2.5-flash-preview-04-17": {"input": 0.15, "output": 0.60},
+    "gemini-2.5-pro-preview-03-25": {"input": 1.25, "output": 10.00},
+    "gemini-2.0-flash": {"input": 0.10, "output": 0.40},
+    "gemini-pro": {"input": 0.25, "output": 0.75},
+    
+    # Anthropic 모델
+    "claude-3-7-sonnet-20250219": {"input": 3.00, "output": 15.00},
+    "claude-3-5-haiku-20241022": {"input": 0.80, "output": 4.00},
+    "claude-2": {"input": 8.00, "output": 24.00}
+}
+
+# 토큰 사용량 및 비용 계산 함수
+def calculate_tokens_and_cost(provider: str, model: str, response):
+    tokens = {"input": 0, "output": 0}
+    
+    # 프로바이더 및 모델별 토큰 정보 추출
+    try:
+        if provider == "openai":
+            tokens["input"] = response.response_metadata["token_usage"]["prompt_tokens"]
+            tokens["output"] = response.response_metadata["token_usage"]["completion_tokens"]
+        elif provider == "gemini":
+            tokens["input"] = response.usage_metadata["input_tokens"]
+            tokens["output"] = response.usage_metadata["output_tokens"]
+        elif provider == "claude":
+            tokens["input"] = response.response_metadata["usage"]["input_tokens"]
+            tokens["output"] = response.response_metadata["usage"]["output_tokens"]
+    except Exception as e:
+        print(f"토큰 정보 추출 오류: {e}")
+        return 0, 0, 0.0
+    
+    # 비용 계산
+    cost = 0.0
+    if model in MODEL_PRICING:
+        pricing = MODEL_PRICING[model]
+        # 1M 토큰당 가격을 실제 토큰 수에 맞게 변환
+        cost = (tokens["input"] * pricing["input"] / 1000000) + (tokens["output"] * pricing["output"] / 1000000)
+    else:
+        print(f"가격 정보가 없는 모델: {model}")
+    
+    return tokens["input"], tokens["output"], cost
 
 @router.post("/test", response_model=TestResponse, summary="모델 및 프롬프트 테스트 (다중 대화 처리)")
 async def test_constitution_recipe(req: TestRequest):
     print(f"[{datetime.now()}] 체질 레시피 테스트 요청 시작: message_list={req}")
     try:
         results: List[TestItem] = []
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_cost = 0.0
+        message_count = len(req.message_list)
+        
         for conv in req.message_list:
             history = conv.messages
             # QA 평가
@@ -218,6 +281,13 @@ async def test_constitution_recipe(req: TestRequest):
                     composite.append(AIMessage(content=msg["content"]))
             # 레시피 생성
             resp = llm_instance.invoke(composite)
+            
+            # 토큰 사용량 및 비용 계산
+            input_tokens, output_tokens, cost = calculate_tokens_and_cost(req.provider, req.model, resp)
+            total_input_tokens += input_tokens
+            total_output_tokens += output_tokens
+            total_cost += cost
+            
             # 레시피 평가
             recipe_result, recipe_score = evaluate_recipe(history, resp.content)
             # 평균 점수: recipe_score만 사용
@@ -237,10 +307,23 @@ async def test_constitution_recipe(req: TestRequest):
                 recipe_result=recipe_result,
                 recipe_score=recipe_score,
                 average_score=average_score,
-                recipe_json=recipe_json
+                recipe_json=recipe_json,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost=cost
             ))
-            print("results",results)
-        return TestResponse(results=results)
+            print("results", results)
+        
+        # 메시지 수가 0이면 오류 방지를 위해 1로 설정
+        avg_cost_per_message = total_cost / max(message_count, 1)
+        
+        return TestResponse(
+            results=results, 
+            total_input_tokens=total_input_tokens,
+            total_output_tokens=total_output_tokens,
+            total_cost=total_cost,
+            avg_cost_per_message=avg_cost_per_message  # 메시지당 평균 비용 추가
+        )
     except Exception as e:
         import traceback
         print('constitution_recipe.py 예외 발생:', str(e))
