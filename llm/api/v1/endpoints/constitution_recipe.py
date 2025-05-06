@@ -18,6 +18,7 @@ from model.get_llm import get_llm
 from model.recipe_model import get_recipe_llm
 from core.config import settings
 from enum import Enum
+import random
 
 LANGSMITH_TRACING = config.settings.LANGSMITH_TRACING
 LANGSMITH_API_KEY = config.settings.LANGSMITH_API_KEY
@@ -380,5 +381,40 @@ async def test_constitution_recipe(req: TestRequest):
         print('constitution_recipe.py 예외 발생:', str(e))
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+    
+class AutoGenerateRecipeRequest(BaseModel):
+    constitution: str = Field(..., description="체질")
+    category: Optional[str] = Field(None, description="카테고리 (한식, 중식, 일식, 양식, 디저트, 음료)")
+    difficulty: Optional[str] = Field(None, description="난이도 (쉬움, 중간, 어려움)")
+    keyIngredients: Optional[List[str]] = Field(None, description="중요 재료 목록 (육류, 해산물, 채소, 과일, 유제품, 견과류)")
+
+@router.post("/auto_generate", response_model=List[Recipe], summary="자동 레시피 생성", description="체질 및 선택 항목 기반 자동 레시피 생성")
+async def auto_generate_recipe(req: AutoGenerateRecipeRequest):
+    # 랜덤 값 선택
+    category = req.category or random.choice([e.value for e in CategoryEnum])
+    difficulty = req.difficulty or random.choice([e.value for e in DifficultyEnum])
+    keyIngredients = req.keyIngredients or [random.choice([e.value for e in KeyIngredientEnum])]
+    # 프롬프트 구성
+    prompt_template = get_prompt("constitution_recipe_auto_generate")
+    format_instructions = parser.get_format_instructions()
+    formatted = prompt_template.format(
+        constitution=req.constitution,
+        category=category,
+        difficulty=difficulty,
+        ingredients=", ".join(keyIngredients),
+        format_instructions=format_instructions
+    )
+    from langchain_core.messages import SystemMessage
+    messages = [SystemMessage(content=formatted)]
+    # LLM 호출
+    llm_client = get_recipe_llm(settings.RECIPE_LLM_NAME)
+    resp = llm_client.invoke(messages)
+    content = getattr(resp, "content", resp.get("query"))
+    # 파싱
+    try:
+        recipe_obj = parser.parse(content)
+        return [recipe_obj.dict()]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"레시피 파싱 실패: {e}")
     
     

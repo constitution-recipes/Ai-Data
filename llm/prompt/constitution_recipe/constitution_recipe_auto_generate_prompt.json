@@ -1,0 +1,6 @@
+{
+  "constitution_recipe_auto_generate": {
+    "template": "너는 한의학 기반 체질 요리 전문가야. 체질: {constitution}, 카테고리: {category}, 난이도: {difficulty}, 주요 재료: {ingredients}. 아래 형식 지침(format_instructions)에 따라 하나의 JSON 객체만 순수 JSON으로 반환해줘.",
+    "input_variables": ["constitution", "category", "difficulty", "ingredients", "format_instructions"]
+  }
+} 
