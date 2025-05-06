@@ -190,9 +190,10 @@ class TestItem(BaseModel):
     id: str
     qa_result: List[Dict[str, Any]]
     qa_score: float
-    recipe_result: List[Dict[str, Any]]
+    recipe_result: List[Dict[str, Any]]  # 각 항목에 question, answer, reason 포함
     recipe_score: float
-    average_score: float
+    average_score: float  # recipe_score만으로 할당
+    recipe_json: dict = None  # 실제 레시피 객체
 
 class TestResponse(BaseModel):
     results: List[TestItem]
@@ -219,16 +220,24 @@ async def test_constitution_recipe(req: TestRequest):
             resp = llm_instance.invoke(composite)
             # 레시피 평가
             recipe_result, recipe_score = evaluate_recipe(history, resp.content)
-            # 평균 점수
-            average_score = (qa_score + recipe_score) / 2
+            # 평균 점수: recipe_score만 사용
+            average_score = recipe_score
             conv_id = conv.id or conv.sid or ""
+            # PydanticOutputParser를 활용해 Recipe 객체 파싱
+            try:
+                recipe_obj = parser.parse(resp.content)
+                recipe_json = recipe_obj.dict()
+            except Exception as parse_err:
+                print('test_constitution_recipe parser error:', parse_err)
+                recipe_json = {}
             results.append(TestItem(
                 id=conv_id,
                 qa_result=qa_result,
                 qa_score=qa_score,
                 recipe_result=recipe_result,
                 recipe_score=recipe_score,
-                average_score=average_score
+                average_score=average_score,
+                recipe_json=recipe_json
             ))
             print("results",results)
         return TestResponse(results=results)
