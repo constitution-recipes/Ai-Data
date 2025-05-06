@@ -72,7 +72,7 @@ print("format_instructions",parser.get_format_instructions())
 
 def request_to_input(request: ChatRequest):
     # 사용자 컨텍스트 정보를 system 메시지로 추가
-    user_context_prompt = load_prompt("constitution_recipe/constitution_recipe_user_context_prompt.json")
+    user_context_prompt = get_prompt(settings.CONSTITUTION_RECIPE_USER_CONTEXT_PROMPT_NAME)
     # 마지막 사용자 메시지를 query로 사용
     last_user_message = ""
     if request.messages:
