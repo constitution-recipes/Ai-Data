@@ -15,4 +15,4 @@ COPY . /app
 EXPOSE 4567
 
 # 서비스 실행
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "4567"] 
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "4567", "--workers", "4"] 
