@@ -101,8 +101,10 @@ parser = PydanticOutputParser(pydantic_object=Recipe)
 def request_to_input(request: ChatRequest):
     # 사용자 컨텍스트 정보를 system 메시지로 추가
     user_context_prompt = get_prompt(settings.CONSTITUTION_RECIPE_USER_CONTEXT_PROMPT_NAME)
+    print("user_context_prompt : ", user_context_prompt)
     # 마지막 사용자 메시지를 query로 사용
     last_user_message = ""
+    print("request.messages : ", request)
     if request.messages:
         for m in reversed(request.messages):
             if m.get('role') == 'user':
