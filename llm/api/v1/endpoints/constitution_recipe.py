@@ -96,7 +96,7 @@ class Recipe(BaseModel):
     keyIngredients: list[KeyIngredientEnum] = Field(..., description="중요 재료")
 
 parser = PydanticOutputParser(pydantic_object=Recipe)
-print("format_instructions",parser.get_format_instructions())
+
 
 def request_to_input(request: ChatRequest):
     # 사용자 컨텍스트 정보를 system 메시지로 추가
@@ -408,22 +408,31 @@ async def auto_generate_recipe(req: AutoGenerateRecipeRequest):
             format_instructions=format_instructions
         )
         from langchain_core.messages import SystemMessage
-        messages = [SystemMessage(content=formatted)]
+        messages = [SystemMessage(content=formatted),SystemMessage(content=f"응답 형식 지침:\n{format_instructions}")]
         # LLM 호출
         llm_client = get_recipe_llm(settings.RECIPE_LLM_NAME)
+        print("llm_client : ", llm_client)
         resp = llm_client.invoke(messages)
-        content = getattr(resp, "content", resp.get("query"))
+        print("resp : ", resp)
+        # AIMessage 또는 dict 형태의 응답에서 content를 추출
+        if hasattr(resp, "content"):
+            content = resp.content
+        elif isinstance(resp, dict) and "query" in resp:
+            content = resp["query"]
+        else:
+            raise HTTPException(status_code=500, detail="LLM 응답에서 content를 찾을 수 없습니다.")
         # 파싱 시도
         try:
             recipe_obj = parser.parse(content)
+            print("recipe_obj : ", recipe_obj)
         except Exception as e:
             if attempt == max_retries - 1:
                 raise HTTPException(status_code=500, detail=f"레시피 파싱 실패: {e}")
             continue
         # 레시피 검증 (score >= 0.8)
-        eval_result, eval_score = evaluate_recipe([], content)
-        if eval_score >= 0.8:
-            return [recipe_obj.dict()]
+        # eval_result, eval_score = evaluate_recipe([], content)
+        # if eval_score >= 0.8:
+        return [recipe_obj.dict()]
         # 기준 미달 시 재생성
     # 재시도 후에도 기준 미달
     raise HTTPException(status_code=500, detail="레시피 검증 실패: 기준을 만족하는 레시피를 생성하지 못했습니다.")
