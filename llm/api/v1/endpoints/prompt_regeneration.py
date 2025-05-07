@@ -54,6 +54,7 @@ async def regenerate_prompt(req: PromptRegenerationRequest):
         data = json.loads(text)
         key = next(iter(data))
         data[key]["template"] = best_prompt
+        data[key]["input_variables"] = original_prompt.input_variables
         # input_variables는 변경하지 않음
         prompt_file_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
