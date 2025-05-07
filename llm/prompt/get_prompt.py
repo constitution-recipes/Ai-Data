@@ -30,4 +30,8 @@ def get_prompt(prompt_name: str):
         return hub.pull("langchain-ai/rag-document-relevance")
     elif prompt_name == "constitution_recipe_base_generate_best":
         return load_prompt("constitution_recipe/consitiution_recipe_base_generate_best_prompt.json")
+    elif prompt_name == "constitution_recipe_auto_generate":
+        return load_prompt("constitution_recipe/constitution_recipe_auto_generate_prompt.json")
+    elif prompt_name == "constitution_recipe_user_context":
+        return load_prompt("constitution_recipe/constitution_recipe_user_context_prompt.json")
 

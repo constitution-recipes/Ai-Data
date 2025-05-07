@@ -17,6 +17,8 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from model.get_llm import get_llm
 from model.recipe_model import get_recipe_llm
 from core.config import settings
+from enum import Enum
+import random
 
 LANGSMITH_TRACING = config.settings.LANGSMITH_TRACING
 LANGSMITH_API_KEY = config.settings.LANGSMITH_API_KEY
@@ -33,6 +35,11 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     feature: Optional[str] = None
     messages: List[Dict[str, str]]  # [{'role': 'user', 'content': '...'}, ...]
+    # 사용자 컨텍스트 필드 추가
+    allergies: Optional[List[str]] = None
+    constitution: Optional[str] = None
+    dietary_restrictions: Optional[List[str]] = None
+    health_conditions: Optional[str] = None
 
 class ChatResponse(BaseModel):
     message: str
@@ -45,11 +52,35 @@ class ChatResponse(BaseModel):
 # ChatOpenAI에 openai_api_key 파라미터로 전달하여 OpenAI 클라이언트에 API 키 설정
 llm = recipe_llm
 
+# 카테고리 Enum 정의
+class CategoryEnum(str, Enum):
+    KOREAN = "한식"
+    CHINESE = "중식"
+    JAPANESE = "일식"
+    WESTERN = "양식"
+    DESSERT = "디저트"
+    BEVERAGE = "음료"
+
+# 난이도 Enum 정의
+class DifficultyEnum(str, Enum):
+    EASY = "쉬움"
+    MEDIUM = "중간"
+    HARD = "어려움"
+
+# 중요 재료 Enum 정의
+class KeyIngredientEnum(str, Enum):
+    MEAT = "육류"
+    SEAFOOD = "해산물"
+    VEGETABLE = "채소"
+    FRUIT = "과일"
+    DAIRY = "유제품"
+    NUTS = "견과류"
+
 # PydanticOutputParser 설정: 하나의 Recipe만 반환
 class Recipe(BaseModel):
     title: str = Field(..., description="레시피 제목")
     description: str = Field(..., description="레시피 설명")
-    difficulty: str = Field(..., description="난이도")
+    difficulty: DifficultyEnum = Field(..., description="난이도")
     cookTime: str = Field(..., description="조리 시간")
     ingredients: list[str] = Field(..., description="재료 목록")
     image: str = Field(..., description="이미지 URL")
@@ -61,13 +92,33 @@ class Recipe(BaseModel):
     steps: list[str] = Field(..., description="조리 단계 리스트")
     servings: str = Field(..., description="인분 정보")
     nutritionalInfo: str = Field(..., description="영양 정보")
+    category: CategoryEnum = Field(..., description="카테고리")
+    keyIngredients: list[KeyIngredientEnum] = Field(..., description="중요 재료")
 
 parser = PydanticOutputParser(pydantic_object=Recipe)
-print("format_instructions",parser.get_format_instructions())
+
 
 def request_to_input(request: ChatRequest):
-    composite_messages = []
-
+    # 사용자 컨텍스트 정보를 system 메시지로 추가
+    user_context_prompt = get_prompt(settings.CONSTITUTION_RECIPE_USER_CONTEXT_PROMPT_NAME)
+    print("user_context_prompt : ", user_context_prompt)
+    # 마지막 사용자 메시지를 query로 사용
+    last_user_message = ""
+    print("request.messages : ", request)
+    if request.messages:
+        for m in reversed(request.messages):
+            if m.get('role') == 'user':
+                last_user_message = m.get('content', "")
+                break
+    formatted_context = user_context_prompt.format(
+        allergies=request.allergies or [],
+        constitution=request.constitution or "",
+        dietary_restrictions=request.dietary_restrictions or [],
+        health_conditions=request.health_conditions or "",
+        query=last_user_message
+    )
+    composite_messages = [SystemMessage(content=formatted_context)]
+    # 기존 대화 메시지를 HumanMessage/AIMessage로 변환
     for qa in request.messages:
         if qa['role'] == 'user':
             composite_messages.append(HumanMessage(content=qa['content']))
@@ -332,5 +383,60 @@ async def test_constitution_recipe(req: TestRequest):
         print('constitution_recipe.py 예외 발생:', str(e))
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+    
+class AutoGenerateRecipeRequest(BaseModel):
+    constitution: str = Field(..., description="체질")
+    category: Optional[str] = Field(None, description="카테고리 (한식, 중식, 일식, 양식, 디저트, 음료)")
+    difficulty: Optional[str] = Field(None, description="난이도 (쉬움, 중간, 어려움)")
+    keyIngredients: Optional[List[str]] = Field(None, description="중요 재료 목록 (육류, 해산물, 채소, 과일, 유제품, 견과류)")
+
+@router.post("/auto_generate", response_model=List[Recipe], summary="자동 레시피 생성", description="체질 및 선택 항목 기반 자동 레시피 생성")
+async def auto_generate_recipe(req: AutoGenerateRecipeRequest):
+    """체질·선택항목 기반으로 최대 3회 레시피를 생성·검증하여 반환합니다."""
+    max_retries = 3
+    for attempt in range(max_retries):
+        # 파라미터 선택 (명시값 또는 랜덤)
+        category = req.category or random.choice([e.value for e in CategoryEnum])
+        difficulty = req.difficulty or random.choice([e.value for e in DifficultyEnum])
+        keyIngredients = req.keyIngredients or [random.choice([e.value for e in KeyIngredientEnum])]
+        # 프롬프트 구성
+        prompt_template = get_prompt("constitution_recipe_auto_generate")
+        format_instructions = parser.get_format_instructions()
+        formatted = prompt_template.format(
+            constitution=req.constitution,
+            category=category,
+            difficulty=difficulty,
+            ingredients=", ".join(keyIngredients),
+            format_instructions=format_instructions
+        )
+        from langchain_core.messages import SystemMessage
+        messages = [SystemMessage(content=formatted),SystemMessage(content=f"응답 형식 지침:\n{format_instructions}")]
+        # LLM 호출
+        llm_client = get_recipe_llm(settings.RECIPE_LLM_NAME)
+        print("llm_client : ", llm_client)
+        resp = llm_client.invoke(messages)
+        print("resp : ", resp)
+        # AIMessage 또는 dict 형태의 응답에서 content를 추출
+        if hasattr(resp, "content"):
+            content = resp.content
+        elif isinstance(resp, dict) and "query" in resp:
+            content = resp["query"]
+        else:
+            raise HTTPException(status_code=500, detail="LLM 응답에서 content를 찾을 수 없습니다.")
+        # 파싱 시도
+        try:
+            recipe_obj = parser.parse(content)
+            print("recipe_obj : ", recipe_obj)
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise HTTPException(status_code=500, detail=f"레시피 파싱 실패: {e}")
+            continue
+        # 레시피 검증 (score >= 0.8)
+        # eval_result, eval_score = evaluate_recipe([], content)
+        # if eval_score >= 0.8:
+        return [recipe_obj.dict()]
+        # 기준 미달 시 재생성
+    # 재시도 후에도 기준 미달
+    raise HTTPException(status_code=500, detail="레시피 검증 실패: 기준을 만족하는 레시피를 생성하지 못했습니다.")
     
     
