@@ -141,8 +141,8 @@ graph LR
   answer -->|진단_ready? 아니오| ask
   answer -->|진단_ready? 예| diagnose(진단 노드)
   diagnose --> checkConf(컨피던스 판단 노드)
-  checkConf -->|confidence < 0.7| ask
-  checkConf -->|confidence ≥ 0.7| save(결과 저장/종료)
+  checkConf -->|confidence < 0.85| ask
+  checkConf -->|confidence ≥ 0.85| save(결과 저장/종료)
 ```
 
 ```python
@@ -206,3 +206,10 @@ graph.add_edge("answer", lambda s: "diagnose" if s["diagnosis_ready"] else "ask"
 graph.add_edge("diagnose", "check_confidence")
 graph.add_edge("check_confidence", {"reask": "ask", "complete": "save"})
 ```
+| 기능 | HTTP 메서드 | 경로 | 설명 |
+|-----------------------------|------------|---------------------------------------|------------------------------------------------------------|
+| 체질 진단 프록시 | POST | /api/v1/constitution | LLM에 체질 진단 요청 → DB에 결과(체질·이유·신뢰도) 업데이트 → 진단 결과 반환 |
+| 사용자-LLM 챗 프록시 | POST | /api/v1/users/chat | 클라이언트 메시지를 LLM 서비스로 프록시 전송 → 응답 저장·전달 → 레시피 생성 시 저장 연동 |
+| 레시피 자동 생성 | POST | /api/v1/recipes/auto_generate | 체질 및 선택 항목 기반으로 AI-Data LLM에 자동 레시피 생성 요청 → 생성된 레시피 DB 저장 및 반환 |
+| 레시피 통계 생성 | POST | /api/v1/stats/generate | 저장된 레시피 데이터를 집계해 카테고리·난이도·체질·재료별 통계 생성 및 저장 |
+| 모델·프롬프트 테스트 및 저장 | POST | /api/v1/experiment/test | 다양한 대화 세트로 모델·프롬프트 테스트 → 품질·비용 점수 계산 → 실험 결과 및 메타데이터 DB 저장 → 응답 반환 |
